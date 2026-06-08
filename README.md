@@ -1,5 +1,6 @@
 # TUTall Backend
 
+
 Production-ready FastAPI backend for **TUTall**, an AI-powered student support platform built for **STEMINATE HACKS 2026** under the theme **AI for a Better World**.
 
 The core engine is **AccessSTEM AI** — a secure learning assistant that helps students with STEM explanations, quizzes, guided hints, study plans, scholarship readiness, and progress tracking.
