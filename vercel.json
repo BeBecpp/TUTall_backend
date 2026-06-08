@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/**/*.py": {
+      "excludeFiles": "{tests/**,tutall-security-backend/**,__pycache__/**,**/*.pyc,.pytest_cache/**,.venv/**,venv/**}"
+    }
+  },
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "api/index.py"
+    }
+  ]
+}
