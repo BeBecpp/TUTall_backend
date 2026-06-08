@@ -13,7 +13,7 @@ TUTall focuses on **Community & Access** and education equity. The frontend neve
 Frontend → TUTall Backend → Gemini AI → TUTall Backend → Frontend
 ```
 
-If Gemini is unavailable or not configured, the backend returns high-quality **fallback** responses so demos never break.
+AI provider chain: **Gemini → Groq → fallback**. If the primary provider fails, Groq is tried automatically before demo-safe fallback responses.
 
 ## Architecture
 
@@ -67,6 +67,8 @@ APP_NAME=TUTall Backend
 APP_ENV=development
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-1.5-flash
+GROQ_API_KEY=
+GROQ_MODEL=llama-3.1-8b-instant
 ALLOWED_ORIGINS=http://localhost:5500,http://127.0.0.1:5500,https://ajays22-orgs.github.io,https://ajays22-orgs.github.io/TUTall
 MAX_TOPIC_LENGTH=120
 MAX_TEXT_LENGTH=800
@@ -77,8 +79,10 @@ DATABASE_URL=
 
 | Variable | Description |
 |----------|-------------|
-| `GEMINI_API_KEY` | Google Gemini API key (optional for demo) |
+| `GEMINI_API_KEY` | Google Gemini API key (primary AI provider) |
 | `GEMINI_MODEL` | Model name, default `gemini-1.5-flash` |
+| `GROQ_API_KEY` | Groq API key (secondary AI provider) |
+| `GROQ_MODEL` | Groq model, default `llama-3.1-8b-instant` |
 | `ENABLE_AI` | Set `false` to force fallback mode |
 | `ALLOWED_ORIGINS` | Comma-separated CORS origins |
 | `DATABASE_URL` | Supabase Postgres connection string (optional) |
@@ -194,6 +198,8 @@ In Vercel Project Settings → Environment Variables, add:
 
 - `GEMINI_API_KEY`
 - `GEMINI_MODEL`
+- `GROQ_API_KEY`
+- `GROQ_MODEL`
 - `DATABASE_URL` (Supabase Postgres URI)
 - `ALLOWED_ORIGINS` (include your frontend URL)
 - `APP_ENV=production`
@@ -276,8 +282,9 @@ Future<Map<String, dynamic>> explainTopic(String topic) async {
 
 Check `source` in AI responses:
 
-- `"gemini"` — live AI response
-- `"fallback"` — safe offline/demo response
+- `"gemini"` — primary AI response
+- `"groq"` — secondary AI response (Gemini failed)
+- `"fallback"` — safe offline/demo response (both providers failed)
 - `"hybrid"` — scholarship endpoint (scoring + optional AI advice)
 
 ## cURL Tests

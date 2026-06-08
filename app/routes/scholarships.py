@@ -28,6 +28,6 @@ def match_scholarships(request: ScholarshipRequest) -> dict:
         topic=request.intended_major,
         source=source,
         success=True,
-        error_code=None if source == "hybrid" else "GEMINI_FALLBACK",
+        error_code=None if source in {"hybrid", "gemini", "groq"} else "AI_FALLBACK",
     )
     return result

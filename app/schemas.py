@@ -194,6 +194,8 @@ class HealthResponse(BaseModel):
     service: str
     environment: str
     ai_configured: bool
+    gemini_configured: bool
+    groq_configured: bool
     database_configured: bool
     version: str
 

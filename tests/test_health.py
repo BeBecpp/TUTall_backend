@@ -19,6 +19,8 @@ def test_health():
     assert body["service"] == "TUTall Backend"
     assert body["version"] == "1.0.0"
     assert "ai_configured" in body
+    assert "gemini_configured" in body
+    assert "groq_configured" in body
     assert "database_configured" in body
 
 

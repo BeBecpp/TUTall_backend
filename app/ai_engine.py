@@ -3,8 +3,6 @@ import logging
 import re
 from typing import Any
 
-from google import genai
-
 from app.config import get_settings
 from app.fallback import (
     fallback_assistant,
@@ -14,6 +12,7 @@ from app.fallback import (
     fallback_scholarship_match,
     fallback_study_plan,
 )
+from app.providers import generate_with_providers, generate_text_with_providers
 from app.schemas import (
     AssistantResponse,
     ExplainResponse,
@@ -45,13 +44,6 @@ SYSTEM_IDENTITY = (
 )
 
 
-def _get_client() -> genai.Client:
-    settings = get_settings()
-    if not settings.ai_configured:
-        raise RuntimeError("AI is not configured")
-    return genai.Client(api_key=settings.gemini_api_key)
-
-
 def _extract_json(text: str) -> dict[str, Any]:
     cleaned = text.strip()
     cleaned = re.sub(r"```(?:json)?", "", cleaned, flags=re.IGNORECASE)
@@ -81,30 +73,6 @@ def _extract_json(text: str) -> dict[str, Any]:
                 break
 
     raise json.JSONDecodeError("No valid JSON object found", cleaned, 0)
-
-
-def _generate_text(prompt: str) -> str:
-    client = _get_client()
-    settings = get_settings()
-    response = client.models.generate_content(
-        model=settings.gemini_model,
-        contents=prompt,
-    )
-    text = (response.text or "").strip()
-    if not text:
-        raise RuntimeError("Empty AI response")
-    return text
-
-
-def _generate_json(prompt: str, retries: int = 1) -> dict[str, Any]:
-    last_error: Exception | None = None
-    for attempt in range(retries + 1):
-        try:
-            return _extract_json(_generate_text(prompt))
-        except Exception as exc:
-            last_error = exc
-            logger.warning("Gemini JSON parse attempt %s failed: %s", attempt + 1, type(exc).__name__)
-    raise last_error or RuntimeError("Gemini JSON generation failed")
 
 
 def _truncate_words(text: str, max_words: int = 60) -> str:
@@ -201,7 +169,6 @@ def _parse_quiz_questions(raw_questions: list[dict[str, Any]], topic: str) -> li
 def _repair_quiz_count(
     questions: list[QuizQuestion],
     topic: str,
-    difficulty: str,
     question_count: int,
 ) -> list[QuizQuestion]:
     if len(questions) > question_count:
@@ -227,9 +194,10 @@ def _build_quiz_response(
     topic: str,
     difficulty: str,
     question_count: int,
+    source: str,
 ) -> dict:
     parsed = _parse_quiz_questions(data.get("questions", []), topic)
-    repaired = _repair_quiz_count(parsed, topic, difficulty, question_count)
+    repaired = _repair_quiz_count(parsed, topic, question_count)
     if len(repaired) != question_count:
         raise ValueError("Quiz repair failed")
 
@@ -237,7 +205,7 @@ def _build_quiz_response(
         topic=data.get("topic") or topic,
         level=data.get("level") or difficulty,
         questions=repaired,
-        source="gemini",
+        source=source,
     ).model_dump()
 
 
@@ -286,10 +254,57 @@ def _hint_reveals_answer(hint: str, correct_answer: str) -> bool:
     return False
 
 
-def generate_explanation(topic: str, difficulty: str, low_bandwidth: bool) -> dict:
+def _assistant_from_text(
+    text: str,
+    topic: str,
+    question: str,
+    source: str,
+) -> dict:
     try:
-        word_limit = 120 if low_bandwidth else 180
-        prompt = f"""
+        data = _extract_json(text)
+        answer = str(data.get("answer", "")).strip()
+        if answer and not _is_generic_explanation(topic, answer):
+            data["topic"] = data.get("topic") or topic
+            data["safety_note"] = data.get("safety_note") or SAFETY_NOTE
+            data["key_points"] = (data.get("key_points") or [])[:4]
+            data["next_steps"] = (data.get("next_steps") or [])[:4]
+            data["suggested_questions"] = (data.get("suggested_questions") or [])[:4]
+            if len(data["key_points"]) < 3:
+                raise ValueError("Insufficient key points")
+            return AssistantResponse(**data).model_dump()
+    except (json.JSONDecodeError, ValueError, TypeError):
+        pass
+
+    plain = text.strip()
+    if not plain:
+        raise ValueError("Empty assistant text")
+
+    return AssistantResponse(
+        topic=topic,
+        answer=plain,
+        key_points=[
+            f"Focus on the core idea of {topic}",
+            "Connect the concept to a real example",
+            "Practice explaining it in your own words",
+        ],
+        example=f"A real-world example can help you understand {topic} better.",
+        next_steps=[
+            f"Review the main ideas of {topic}",
+            "Try a short practice question",
+        ],
+        suggested_questions=[
+            f"Can you give another example of {topic}?",
+            f"What should I study next after {topic}?",
+            question,
+        ],
+        safety_note=SAFETY_NOTE,
+        source=source,
+    ).model_dump()
+
+
+def generate_explanation(topic: str, difficulty: str, low_bandwidth: bool) -> dict:
+    word_limit = 120 if low_bandwidth else 180
+    prompt = f"""
 Return ONLY valid JSON. No markdown.
 
 {SYSTEM_IDENTITY}
@@ -322,27 +337,29 @@ JSON:
   "source": "gemini"
 }}
 """
-        data = _generate_json(prompt, retries=1)
+
+    def parse_explanation(text: str, source: str) -> dict:
+        data = _extract_json(text)
         explanation = str(data.get("explanation", "")).strip()
         if not explanation or _is_generic_explanation(topic, explanation):
             raise ValueError("Generic or empty explanation")
-
-        data["source"] = "gemini"
         data["safety_note"] = data.get("safety_note") or SAFETY_NOTE
         data["key_points"] = (data.get("key_points") or [])[:4]
         data["next_topics"] = (data.get("next_topics") or [])[:2]
         if len(data["key_points"]) < 3:
             raise ValueError("Insufficient key points")
-
+        data["source"] = source
         return ExplainResponse(**data).model_dump()
-    except Exception as exc:
-        logger.warning("Explanation fallback triggered: %s", type(exc).__name__)
-        return fallback_explanation(topic, difficulty, low_bandwidth)
+
+    return generate_with_providers(
+        prompt,
+        parse_explanation,
+        lambda: fallback_explanation(topic, difficulty, low_bandwidth),
+    )
 
 
 def generate_quiz(topic: str, difficulty: str, question_count: int) -> dict:
-    try:
-        prompt = f"""
+    prompt = f"""
 Return ONLY valid JSON. No markdown.
 
 {SYSTEM_IDENTITY}
@@ -376,11 +393,16 @@ JSON:
   "source": "gemini"
 }}
 """
-        data = _generate_json(prompt, retries=1)
-        return _build_quiz_response(data, topic, difficulty, question_count)
-    except Exception as exc:
-        logger.warning("Quiz fallback triggered: %s", type(exc).__name__)
-        return fallback_quiz(topic, difficulty, question_count)
+
+    def parse_quiz(text: str, source: str) -> dict:
+        data = _extract_json(text)
+        return _build_quiz_response(data, topic, difficulty, question_count, source)
+
+    return generate_with_providers(
+        prompt,
+        parse_quiz,
+        lambda: fallback_quiz(topic, difficulty, question_count),
+    )
 
 
 def generate_hint(
@@ -389,8 +411,7 @@ def generate_hint(
     student_answer: str,
     correct_answer: str,
 ) -> dict:
-    try:
-        prompt = f"""
+    prompt = f"""
 {SYSTEM_IDENTITY}
 
 Give ONE helpful hint for this quiz question.
@@ -402,23 +423,26 @@ Question: {question}
 Student answer: {student_answer}
 Correct answer: {correct_answer}
 """
-        hint = _truncate_words(_generate_text(prompt), max_words=60)
-        if _hint_reveals_answer(hint, correct_answer):
-            raise ValueError("Hint reveals answer")
 
+    def parse_hint(text: str, source: str) -> dict:
+        hint = _truncate_words(text, max_words=60)
+        if not hint or _hint_reveals_answer(hint, correct_answer):
+            raise ValueError("Hint reveals answer or is empty")
         encouragement = "Keep going — use the hint to think through the concept again."
         if _hint_reveals_answer(encouragement, correct_answer):
             encouragement = "You are close — review the concept and try again."
-
         return {
             "hint": hint,
             "encouragement": encouragement,
             "reveals_answer": False,
-            "source": "gemini",
+            "source": source,
         }
-    except Exception as exc:
-        logger.warning("Hint fallback triggered: %s", type(exc).__name__)
-        return fallback_hint(topic, question, correct_answer)
+
+    return generate_text_with_providers(
+        prompt,
+        parse_hint,
+        lambda: fallback_hint(topic, question, correct_answer),
+    )
 
 
 def generate_study_plan(
@@ -427,9 +451,8 @@ def generate_study_plan(
     available_days: int,
     weak_topics: list[str],
 ) -> dict:
-    try:
-        weak_list = ", ".join(weak_topics) if weak_topics else "areas from the goal"
-        prompt = f"""
+    weak_list = ", ".join(weak_topics) if weak_topics else "areas from the goal"
+    prompt = f"""
 Return ONLY valid JSON. No markdown.
 
 {SYSTEM_IDENTITY}
@@ -461,7 +484,9 @@ JSON:
   "source": "gemini"
 }}
 """
-        data = _generate_json(prompt, retries=1)
+
+    def parse_study_plan(text: str, source: str) -> dict:
+        data = _extract_json(text)
         days = _normalize_study_plan_days(
             data.get("days", []),
             available_days,
@@ -469,11 +494,13 @@ JSON:
             grade_level,
             weak_topics,
         )
-        result = StudyPlanResponse(goal=goal, days=days, source="gemini")
-        return result.model_dump()
-    except Exception as exc:
-        logger.warning("Study plan fallback triggered: %s", type(exc).__name__)
-        return fallback_study_plan(goal, grade_level, available_days, weak_topics)
+        return StudyPlanResponse(goal=goal, days=days, source=source).model_dump()
+
+    return generate_with_providers(
+        prompt,
+        parse_study_plan,
+        lambda: fallback_study_plan(goal, grade_level, available_days, weak_topics),
+    )
 
 
 def generate_assistant(
@@ -483,8 +510,7 @@ def generate_assistant(
     mode: str,
     student_context: str,
 ) -> dict:
-    try:
-        prompt = f"""
+    prompt = f"""
 Return ONLY valid JSON. No markdown.
 
 {SYSTEM_IDENTITY}
@@ -518,21 +544,15 @@ JSON:
   "source": "gemini"
 }}
 """
-        data = _generate_json(prompt, retries=1)
-        answer = str(data.get("answer", "")).strip()
-        if not answer or _is_generic_explanation(topic, answer):
-            raise ValueError("Generic assistant answer")
 
-        data["source"] = "gemini"
-        data["safety_note"] = data.get("safety_note") or SAFETY_NOTE
-        data["key_points"] = (data.get("key_points") or [])[:4]
-        data["next_steps"] = (data.get("next_steps") or [])[:4]
-        data["suggested_questions"] = (data.get("suggested_questions") or [])[:4]
+    def parse_assistant(text: str, source: str) -> dict:
+        return _assistant_from_text(text, topic, question, source)
 
-        return AssistantResponse(**data).model_dump()
-    except Exception as exc:
-        logger.warning("Assistant fallback triggered: %s", type(exc).__name__)
-        return fallback_assistant(topic, question, difficulty, mode, student_context)
+    return generate_with_providers(
+        prompt,
+        parse_assistant,
+        lambda: fallback_assistant(topic, question, difficulty, mode, student_context),
+    )
 
 
 def generate_scholarship_advice(profile: ScholarshipRequest) -> dict:
@@ -542,8 +562,7 @@ def generate_scholarship_advice(profile: ScholarshipRequest) -> dict:
     if not get_settings().ai_configured:
         return base
 
-    try:
-        prompt = f"""
+    prompt = f"""
 Return ONLY valid JSON. No markdown.
 
 You are an ethical scholarship readiness advisor for TUTall.
@@ -568,15 +587,21 @@ JSON:
   }}
 }}
 """
-        ai_data = _generate_json(prompt, retries=1)
-        base["profile_summary"] = ai_data.get("profile_summary", base["profile_summary"])
+
+    def parse_scholarship(text: str, source: str) -> dict:
+        _ = source
+        ai_data = _extract_json(text)
+        result = dict(base)
+        result["profile_summary"] = ai_data.get("profile_summary", base["profile_summary"])
         advisor = ai_data.get("advisor", {})
-        base["advisor"]["summary"] = _ensure_no_guarantee(
+        result["advisor"]["summary"] = _ensure_no_guarantee(
             advisor.get("summary", base["advisor"]["summary"])
         )
-        base["advisor"]["next_steps"] = advisor.get("next_steps", base["advisor"]["next_steps"])[:5]
-        base["advisor"]["warning"] = "This is an estimate and does not guarantee acceptance."
-        return ScholarshipResponse(**base).model_dump()
-    except Exception as exc:
-        logger.warning("Scholarship advice fallback triggered: %s", type(exc).__name__)
-        return base
+        result["advisor"]["next_steps"] = advisor.get("next_steps", base["advisor"]["next_steps"])[:5]
+        result["advisor"]["warning"] = "This is an estimate and does not guarantee acceptance."
+        result["source"] = "hybrid"
+        return ScholarshipResponse(**result).model_dump()
+
+    result = generate_with_providers(prompt, parse_scholarship, lambda: base)
+    result["source"] = "hybrid"
+    return result

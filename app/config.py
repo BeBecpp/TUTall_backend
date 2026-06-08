@@ -23,6 +23,8 @@ class Settings(BaseSettings):
 
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-1.5-flash", validation_alias="GEMINI_MODEL")
+    groq_api_key: str = Field(default="", validation_alias="GROQ_API_KEY")
+    groq_model: str = Field(default="llama-3.1-8b-instant", validation_alias="GROQ_MODEL")
 
     allowed_origins: str = Field(
         default=",".join(DEFAULT_ORIGINS),
@@ -53,8 +55,16 @@ class Settings(BaseSettings):
         return merged
 
     @property
-    def ai_configured(self) -> bool:
+    def gemini_configured(self) -> bool:
         return bool(self.gemini_api_key.strip()) and self.enable_ai
+
+    @property
+    def groq_configured(self) -> bool:
+        return bool(self.groq_api_key.strip()) and self.enable_ai
+
+    @property
+    def ai_configured(self) -> bool:
+        return self.gemini_configured or self.groq_configured
 
     @property
     def database_configured(self) -> bool:

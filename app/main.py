@@ -87,6 +87,8 @@ def health() -> dict:
         "service": settings.app_name,
         "environment": settings.app_env,
         "ai_configured": settings.ai_configured,
+        "gemini_configured": settings.gemini_configured,
+        "groq_configured": settings.groq_configured,
         "database_configured": settings.database_configured,
         "version": settings.app_version,
     }

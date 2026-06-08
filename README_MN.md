@@ -74,13 +74,20 @@ Frontend, Flutter app, GitHub Pages кодонд **хэзээ ч** key оруу�
 
 ### Юу frontend руу буцаадаг вэ?
 
-AI endpoint-үүд `source` field буцаана:
+AI provider chain: **Gemini → Groq → fallback**
 
 | `source` | Утга |
 |----------|------|
-| `"gemini"` | Жинхэнэ AI хариу |
-| `"fallback"` | Offline/demo хариу (key байхгүй эсвэл AI алдаа) |
+| `"gemini"` | Primary AI хариу |
+| `"groq"` | Secondary AI (Gemini fail бол Groq ашиглана) |
+| `"fallback"` | Demo-safe хариу (хоёул ч fail) |
 | `"hybrid"` | Scholarship (deterministic score + AI advice) |
+
+`.env` дээр:
+```env
+GROQ_API_KEY=
+GROQ_MODEL=llama-3.1-8b-instant
+```
 
 ---
 

@@ -81,8 +81,9 @@ def test_build_quiz_response_exact_count():
             },
         ],
     }
-    result = _build_quiz_response(payload, "Chemistry", "beginner", 3)
+    result = _build_quiz_response(payload, "Chemistry", "beginner", 3, "gemini")
     assert len(result["questions"]) == 3
+    assert result["source"] == "gemini"
     for question in result["questions"]:
         assert len(question["options"]) == 4
         assert question["correct_answer"] in question["options"]
@@ -103,8 +104,9 @@ def test_build_quiz_response_repairs_short_count():
             }
         ],
     }
-    result = _build_quiz_response(payload, "Chemistry", "beginner", 3)
+    result = _build_quiz_response(payload, "Chemistry", "beginner", 3, "groq")
     assert len(result["questions"]) == 3
+    assert result["source"] == "groq"
 
 
 def test_is_generic_explanation_detects_generic_text():

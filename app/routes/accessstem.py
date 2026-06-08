@@ -50,13 +50,13 @@ def _compare_answers(student_answer: str, correct_answer: str) -> bool:
 
 def _log_ai_request(endpoint: str, topic: str | None, result: dict) -> None:
     source = str(result.get("source", "unknown"))
-    is_gemini = source == "gemini"
+    is_ai_provider = source in {"gemini", "groq", "hybrid"}
     get_storage().log_ai_request(
         endpoint=endpoint,
         topic=topic,
         source=source,
         success=True,
-        error_code=None if is_gemini or source == "hybrid" else "GEMINI_FALLBACK",
+        error_code=None if is_ai_provider else "AI_FALLBACK",
     )
 
 
