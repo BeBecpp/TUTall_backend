@@ -1,5 +1,6 @@
 # TUTall Backend
 
+
 Production-ready FastAPI backend for **TUTall**, an AI-powered student support platform built for **STEMINATE HACKS 2026** under the theme **AI for a Better World**.
 
 The core engine is **AccessSTEM AI** — a secure learning assistant that helps students with STEM explanations, quizzes, guided hints, study plans, scholarship readiness, and progress tracking.
@@ -44,6 +45,7 @@ tests/                # Pytest suite (no Gemini key required)
 | `GET` | `/` | Service welcome |
 | `GET` | `/health` | Health check |
 | `GET` | `/api/meta` | Public API metadata |
+| `POST` | `/api/accessstem/assistant` | AI chatbot / help panel |
 | `POST` | `/api/accessstem/explain` | STEM topic explanation |
 | `POST` | `/api/accessstem/quiz` | Multiple-choice quiz |
 | `POST` | `/api/accessstem/hint` | Guided hint (no answer reveal) |
@@ -218,6 +220,22 @@ curl https://YOUR-PROJECT.vercel.app/health
 - Set `ENABLE_AI=false` to force fallback mode even when a Gemini key exists.
 
 ## Frontend Integration
+
+### AI Assistant (chat panel)
+
+```javascript
+const response = await fetch(`${API_BASE}/api/accessstem/assistant`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    topic: "Newton's Laws",
+    question: "Can you explain this with an example?",
+    difficulty: "beginner",
+    mode: "learning",
+    student_context: "high school student preparing for quiz",
+  }),
+});
+```
 
 ### JavaScript (fetch)
 

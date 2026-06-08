@@ -19,6 +19,20 @@ curl -s "$BASE_URL/health" | jq
 curl -s "$BASE_URL/api/meta" | jq
 ```
 
+## AI Assistant (chat panel)
+
+```bash
+curl -s -X POST "$BASE_URL/api/accessstem/assistant" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic": "Newton'\''s Laws",
+    "question": "Can you explain this with an example?",
+    "difficulty": "beginner",
+    "mode": "learning",
+    "student_context": "high school student preparing for quiz"
+  }' | jq
+```
+
 ## STEM Explanation
 
 ```bash

@@ -22,10 +22,12 @@ def match_scholarships(request: ScholarshipRequest) -> dict:
     result = generate_scholarship_advice(request)
     storage = get_storage()
     storage.save_scholarship_profile(request, result["overall_readiness_score"])
+    source = str(result.get("source", "hybrid"))
     storage.log_ai_request(
         endpoint="/api/scholarships/match",
         topic=request.intended_major,
-        source=str(result.get("source", "hybrid")),
+        source=source,
         success=True,
+        error_code=None if source == "hybrid" else "GEMINI_FALLBACK",
     )
     return result

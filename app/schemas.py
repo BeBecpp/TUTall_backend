@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 
 Difficulty = Literal["beginner", "middle school", "high school", "advanced"]
 FinancialNeed = Literal["low", "medium", "high"]
+AssistantMode = Literal["learning", "quiz", "help", "review"]
 
 SAFETY_NOTE = "AI-generated learning support. Verify important information."
 
@@ -83,10 +84,29 @@ class CheckAnswerResponse(BaseModel):
     score_delta: int
 
 
+class AssistantRequest(BaseModel):
+    topic: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1)
+    difficulty: Difficulty = "beginner"
+    mode: AssistantMode = "learning"
+    student_context: str = ""
+
+
+class AssistantResponse(BaseModel):
+    topic: str
+    answer: str
+    key_points: list[str]
+    example: str
+    next_steps: list[str]
+    suggested_questions: list[str]
+    safety_note: str = SAFETY_NOTE
+    source: str
+
+
 class StudyPlanRequest(BaseModel):
     goal: str = Field(..., min_length=1)
     grade_level: str = Field(..., min_length=1)
-    available_days: int = Field(..., ge=1, le=30)
+    available_days: int = Field(..., ge=1, le=14)
     weak_topics: list[str] = Field(default_factory=list)
 
 

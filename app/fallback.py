@@ -3,41 +3,45 @@ from app.schemas import (
     ScholarshipRequest,
     StudyPlanDay,
 )
+from app.topic_knowledge import build_topic_quiz_questions, get_topic_bundle
 
 
 def fallback_explanation(topic: str, difficulty: str, low_bandwidth: bool = False) -> dict:
-    if low_bandwidth:
-        explanation = (
-            f"{topic} is a core STEM idea. Learn the main concept, connect one example, "
-            "then answer a short check question."
-        )
-        key_points = [
-            f"Start with the definition of {topic}",
-            "Use one real-world example",
-            "Practice with a short question",
-        ]
-    else:
-        explanation = (
-            f"{topic} can be learned step by step. First, understand the main idea in simple words. "
-            "Then connect it to a real example from school, technology, or nature. "
-            "Finally, test yourself with a short question to build confidence."
-        )
-        key_points = [
-            f"Define {topic} in your own words",
-            "Connect the concept to a real-world example",
-            "Practice with hints instead of copying answers",
-            "Review mistakes to strengthen understanding",
-        ]
+    bundle = get_topic_bundle(topic)
+
+    if bundle:
+        explanation = bundle["explanation"]
+        if low_bandwidth:
+            explanation = explanation.split(". ")[0] + "."
+        return {
+            "topic": topic,
+            "level": difficulty,
+            "explanation": explanation,
+            "example": bundle["example"],
+            "key_points": bundle["key_points"][:3],
+            "check_question": bundle["check_question"],
+            "next_topics": bundle["next_topics"][:2],
+            "safety_note": SAFETY_NOTE,
+            "source": "fallback",
+        }
 
     return {
         "topic": topic,
         "level": difficulty,
-        "explanation": explanation,
-        "example": (
-            f"A practical example of {topic} can appear in sports, engineering, medicine, "
-            "or everyday problem solving."
+        "explanation": (
+            f"{topic} is an important STEM topic at the {difficulty} level. "
+            f"Start with a clear definition of {topic}, connect it to one real example, "
+            "then practice with short questions to check your understanding."
         ),
-        "key_points": key_points[:4],
+        "example": (
+            f"You can find real-world uses of {topic} in science class, technology, "
+            "engineering projects, or everyday problem solving."
+        ),
+        "key_points": [
+            f"Define {topic} in simple words",
+            f"Connect {topic} to one real-world example",
+            f"Practice {topic} with questions and hints",
+        ],
         "check_question": f"What is the main idea behind {topic}?",
         "next_topics": [
             f"Applications of {topic}",
@@ -49,117 +53,101 @@ def fallback_explanation(topic: str, difficulty: str, low_bandwidth: bool = Fals
 
 
 def fallback_quiz(topic: str, difficulty: str = "beginner", question_count: int = 5) -> dict:
-    base_questions = [
-        {
-            "id": "q1",
-            "question": f"What is the best first step when learning {topic}?",
-            "options": [
-                "Understand the main idea",
-                "Memorize random facts",
-                "Skip examples",
-                "Avoid practice",
-            ],
-            "correct_answer": "Understand the main idea",
-            "explanation": "Understanding the core idea makes the rest of the topic easier.",
-            "concept": "Learning strategy",
-        },
-        {
-            "id": "q2",
-            "question": f"Why is practice important for {topic}?",
-            "options": [
-                "It helps you test understanding",
-                "It removes the need to think",
-                "It replaces explanations",
-                "It is only for exams",
-            ],
-            "correct_answer": "It helps you test understanding",
-            "explanation": "Practice turns passive reading into active learning.",
-            "concept": "Active recall",
-        },
-        {
-            "id": "q3",
-            "question": "What should you do after a wrong answer?",
-            "options": [
-                "Use a hint and review the concept",
-                "Give up immediately",
-                "Ignore the mistake",
-                "Only copy the final answer",
-            ],
-            "correct_answer": "Use a hint and review the concept",
-            "explanation": "Hints support learning without giving away the full answer.",
-            "concept": "Growth mindset",
-        },
-        {
-            "id": "q4",
-            "question": f"How can a real-world example help with {topic}?",
-            "options": [
-                "It connects ideas to everyday life",
-                "It replaces all study",
-                "It guarantees a perfect score",
-                "It removes the need for notes",
-            ],
-            "correct_answer": "It connects ideas to everyday life",
-            "explanation": "Examples make abstract STEM ideas easier to remember.",
-            "concept": "Concept application",
-        },
-        {
-            "id": "q5",
-            "question": "What is a good study habit for STEM topics?",
-            "options": [
-                "Review a little each day",
-                "Cram once before a test only",
-                "Avoid asking questions",
-                "Skip difficult sections forever",
-            ],
-            "correct_answer": "Review a little each day",
-            "explanation": "Short daily review builds long-term understanding.",
-            "concept": "Study habits",
-        },
-        {
-            "id": "q6",
-            "question": f"When learning {topic}, what helps most?",
-            "options": [
-                "Breaking the topic into smaller parts",
-                "Reading once without practice",
-                "Avoiding all mistakes",
-                "Memorizing without meaning",
-            ],
-            "correct_answer": "Breaking the topic into smaller parts",
-            "explanation": "Smaller steps reduce overwhelm and improve retention.",
-            "concept": "Chunking",
-        },
-        {
-            "id": "q7",
-            "question": "Why should students verify important information?",
-            "options": [
-                "AI support is helpful but not perfect",
-                "Teachers never provide guidance",
-                "All online answers are always wrong",
-                "Verification is never useful",
-            ],
-            "correct_answer": "AI support is helpful but not perfect",
-            "explanation": "Learning tools support study, but students should confirm key facts.",
-            "concept": "Information literacy",
-        },
-    ]
-
     count = max(3, min(question_count, 7))
+    questions = build_topic_quiz_questions(topic, count)
     return {
         "topic": topic,
         "level": difficulty,
-        "questions": base_questions[:count],
+        "questions": questions,
         "source": "fallback",
     }
 
 
 def fallback_hint(topic: str, question: str, correct_answer: str) -> dict:
+    bundle = get_topic_bundle(topic)
+    hint = (
+        f"Re-read the question about {topic} and identify which concept it is testing. "
+        "Eliminate options that do not match that concept."
+    )
+    if bundle and bundle.get("key_points"):
+        hint = (
+            f"Think about this key idea for {topic}: {bundle['key_points'][0]}. "
+            "Then compare each option to that idea."
+        )
+
     return {
-        "hint": (
-            f"Focus on the key idea in the question about {topic}. "
-            "Eliminate options that do not match the main concept."
-        ),
-        "encouragement": "You are close — review the concept and try again.",
+        "hint": hint,
+        "encouragement": "You are closer than you think — review the concept and try again.",
         "reveals_answer": False,
+        "source": "fallback",
+    }
+
+
+def fallback_assistant(
+    topic: str,
+    question: str,
+    difficulty: str,
+    mode: str,
+    student_context: str,
+) -> dict:
+    bundle = get_topic_bundle(topic)
+
+    if bundle:
+        answer = bundle["explanation"]
+        if "example" in question.lower():
+            answer = (
+                f"{bundle['explanation']} Example: {bundle['example']}"
+            )
+        key_points = bundle["key_points"][:3]
+        example = bundle["example"]
+        next_steps = [
+            f"Review the key ideas of {topic}",
+            f"Try a short quiz on {topic}",
+            "Explain the concept in your own words",
+        ]
+        suggested = [
+            f"Can you give another example of {topic}?",
+            f"What is a common mistake students make with {topic}?",
+            f"How does {topic} connect to everyday life?",
+        ]
+    else:
+        answer = (
+            f"For {topic} at the {difficulty} level: focus on the definition, "
+            f"one real example, and a short practice question. "
+            f"Your question was: {question}"
+        )
+        key_points = [
+            f"Define {topic} clearly",
+            f"Use one example to understand {topic}",
+            "Practice with hints instead of copying answers",
+        ]
+        example = f"A real-world example helps make {topic} easier to understand."
+        next_steps = [
+            f"Write a one-sentence summary of {topic}",
+            f"Complete 3 practice questions on {topic}",
+            "Review any mistakes with a hint",
+        ]
+        suggested = [
+            f"What should I study next after {topic}?",
+            f"Can you quiz me on {topic}?",
+            f"How do I know if I understand {topic}?",
+        ]
+
+    if mode == "quiz":
+        answer = (
+            f"To prepare for a {topic} quiz, review definitions, work through examples, "
+            "and practice explaining each concept without looking at notes."
+        )
+
+    _ = student_context
+    return {
+        "topic": topic,
+        "answer": answer,
+        "key_points": key_points,
+        "example": example,
+        "next_steps": next_steps,
+        "suggested_questions": suggested,
+        "safety_note": SAFETY_NOTE,
         "source": "fallback",
     }
 
@@ -170,7 +158,7 @@ def fallback_study_plan(
     available_days: int,
     weak_topics: list[str],
 ) -> dict:
-    topics = weak_topics or ["core STEM review", "practice problems"]
+    topics = weak_topics or [goal]
     days = []
 
     for day_number in range(1, available_days + 1):
@@ -178,11 +166,11 @@ def fallback_study_plan(
         days.append(
             StudyPlanDay(
                 day=day_number,
-                focus=f"Day {day_number}: {focus_topic}",
+                focus=f"Day {day_number}: Strengthen {focus_topic}",
                 tasks=[
-                    f"Review the main idea of {focus_topic}",
-                    "Complete 3 practice questions",
-                    "Write one sentence explaining what you learned",
+                    f"Review notes and definitions for {focus_topic}",
+                    f"Solve 3 practice problems on {focus_topic}",
+                    "Write one sentence explaining what you learned today",
                 ],
                 estimated_minutes=45,
             ).model_dump()
@@ -268,6 +256,12 @@ def fallback_scholarship_match(profile: ScholarshipRequest) -> dict:
         if not profile.activities.strip():
             improvements.append("Add extracurricular or STEM project experience")
 
+        strengths = [f"Interest in {profile.intended_major}"]
+        if profile.gpa >= scholarship["min_gpa"]:
+            strengths.append("GPA meets or is close to this scholarship range")
+        if profile.activities.strip():
+            strengths.append("Activities show engagement beyond grades")
+
         matches.append(
             {
                 "name": scholarship["name"],
@@ -275,10 +269,7 @@ def fallback_scholarship_match(profile: ScholarshipRequest) -> dict:
                 "fit_score": fit_score,
                 "estimated_amount": scholarship["estimated_amount"],
                 "deadline": scholarship["deadline"],
-                "strengths": [
-                    f"Strong interest in {profile.intended_major}",
-                    "Profile can be compared with scholarship requirements",
-                ],
+                "strengths": strengths[:3],
                 "improvements": improvements[:4],
                 "required_documents": scholarship["required_documents"],
             }

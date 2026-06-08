@@ -3,6 +3,7 @@ import re
 from fastapi import APIRouter
 
 from app.ai_engine import (
+    generate_assistant,
     generate_explanation,
     generate_hint,
     generate_quiz,
@@ -10,6 +11,8 @@ from app.ai_engine import (
 )
 from app.safety import check_payload_safety, validate_text_field, validate_topic
 from app.schemas import (
+    AssistantRequest,
+    AssistantResponse,
     CheckAnswerRequest,
     CheckAnswerResponse,
     ExplainRequest,
@@ -46,12 +49,42 @@ def _compare_answers(student_answer: str, correct_answer: str) -> bool:
 
 
 def _log_ai_request(endpoint: str, topic: str | None, result: dict) -> None:
+    source = str(result.get("source", "unknown"))
+    is_gemini = source == "gemini"
     get_storage().log_ai_request(
         endpoint=endpoint,
         topic=topic,
-        source=str(result.get("source", "unknown")),
+        source=source,
         success=True,
+        error_code=None if is_gemini or source == "hybrid" else "GEMINI_FALLBACK",
     )
+
+
+@router.post("/assistant", response_model=AssistantResponse)
+def assistant(request: AssistantRequest) -> dict:
+    topic = validate_topic(request.topic)
+    question = validate_text_field(request.question, "question")
+    student_context = (
+        validate_text_field(request.student_context, "student_context")
+        if request.student_context.strip()
+        else ""
+    )
+    check_payload_safety(
+        {
+            "topic": topic,
+            "question": question,
+            "student_context": student_context,
+        }
+    )
+    result = generate_assistant(
+        topic,
+        question,
+        request.difficulty,
+        request.mode,
+        student_context,
+    )
+    _log_ai_request("/api/accessstem/assistant", topic, result)
+    return result
 
 
 @router.post("/explain", response_model=ExplainResponse)

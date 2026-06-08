@@ -8,28 +8,66 @@ client = TestClient(app)
 def test_explain_fallback():
     response = client.post(
         "/api/accessstem/explain",
-        json={"topic": "Newton's Laws", "difficulty": "beginner", "low_bandwidth": False},
+        json={"topic": "Algebra basics", "difficulty": "beginner", "low_bandwidth": False},
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["topic"] == "Newton's Laws"
+    assert body["topic"] == "Algebra basics"
     assert body["source"] == "fallback"
     assert len(body["key_points"]) >= 3
     assert body["safety_note"]
 
 
-def test_quiz_fallback():
+def test_quiz_fallback_respects_question_count():
+    for count in (3, 5, 7):
+        response = client.post(
+            "/api/accessstem/quiz",
+            json={
+                "topic": "Photosynthesis",
+                "difficulty": "middle school",
+                "question_count": count,
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["source"] == "fallback"
+        assert len(body["questions"]) == count
+        for question in body["questions"]:
+            assert len(question["options"]) == 4
+            assert question["correct_answer"] in question["options"]
+            assert "Photosynthesis" in question["question"] or question["concept"]
+
+
+def test_assistant_fallback_shape():
     response = client.post(
-        "/api/accessstem/quiz",
-        json={"topic": "Photosynthesis", "difficulty": "middle school", "question_count": 5},
+        "/api/accessstem/assistant",
+        json={
+            "topic": "Newton's Laws",
+            "question": "Can you explain this with an example?",
+            "difficulty": "beginner",
+            "mode": "learning",
+            "student_context": "high school student preparing for quiz",
+        },
     )
     assert response.status_code == 200
     body = response.json()
+    assert body["topic"] == "Newton's Laws"
     assert body["source"] == "fallback"
-    assert len(body["questions"]) == 5
-    for question in body["questions"]:
-        assert len(question["options"]) == 4
-        assert question["correct_answer"] in question["options"]
+    assert body["answer"]
+    assert len(body["key_points"]) >= 3
+    assert body["example"]
+    assert len(body["next_steps"]) >= 2
+    assert len(body["suggested_questions"]) >= 3
+    assert body["safety_note"]
+
+
+def test_newton_explain_fallback_is_topic_specific():
+    response = client.post(
+        "/api/accessstem/explain",
+        json={"topic": "Newton's Laws", "difficulty": "beginner", "low_bandwidth": False},
+    )
+    body = response.json()
+    assert "inertia" in body["explanation"].lower() or "newton" in body["explanation"].lower()
 
 
 def test_hint_fallback():
@@ -96,6 +134,8 @@ def test_study_plan_fallback():
     body = response.json()
     assert body["source"] == "fallback"
     assert len(body["days"]) == 3
+    assert body["days"][0]["tasks"]
+    assert "linear equations" in body["days"][0]["focus"].lower() or "forces" in body["days"][1]["focus"].lower()
 
 
 def test_progress_save_list_delete():

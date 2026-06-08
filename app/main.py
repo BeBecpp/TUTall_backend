@@ -100,8 +100,10 @@ def meta() -> dict:
         "version": settings.app_version,
         "features": [
             "STEM explanation",
+            "AI assistant chat panel",
             "quiz generation",
             "hint mode",
+            "study plan",
             "scholarship readiness",
             "progress tracking",
             "fallback AI safety",

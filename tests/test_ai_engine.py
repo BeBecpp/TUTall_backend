@@ -3,11 +3,12 @@ import json
 import pytest
 
 from app.ai_engine import (
+    _build_quiz_response,
     _ensure_no_guarantee,
     _extract_json,
     _hint_reveals_answer,
+    _is_generic_explanation,
     _resolve_correct_answer,
-    _validate_quiz_data,
 )
 
 
@@ -49,7 +50,7 @@ def test_resolve_correct_answer_exact_and_fuzzy():
     assert _resolve_correct_answer("understand the main idea", options) == options[0]
 
 
-def test_validate_quiz_data_requires_exact_count():
+def test_build_quiz_response_exact_count():
     payload = {
         "topic": "Chemistry",
         "level": "beginner",
@@ -80,30 +81,37 @@ def test_validate_quiz_data_requires_exact_count():
             },
         ],
     }
-    result = _validate_quiz_data(payload, "Chemistry", "beginner", 3)
+    result = _build_quiz_response(payload, "Chemistry", "beginner", 3)
     assert len(result["questions"]) == 3
     for question in result["questions"]:
         assert len(question["options"]) == 4
         assert question["correct_answer"] in question["options"]
 
 
-def test_validate_quiz_data_rejects_wrong_count():
+def test_build_quiz_response_repairs_short_count():
     payload = {
         "topic": "Chemistry",
         "level": "beginner",
         "questions": [
             {
                 "id": "q1",
-                "question": "Q1?",
-                "options": ["A", "B", "C", "D"],
-                "correct_answer": "A",
-                "explanation": "Because A.",
-                "concept": "Test",
+                "question": "What is H2O?",
+                "options": ["Water", "Oxygen", "Hydrogen", "Salt"],
+                "correct_answer": "Water",
+                "explanation": "H2O is water.",
+                "concept": "Chemistry basics",
             }
         ],
     }
-    with pytest.raises(ValueError, match="count mismatch"):
-        _validate_quiz_data(payload, "Chemistry", "beginner", 3)
+    result = _build_quiz_response(payload, "Chemistry", "beginner", 3)
+    assert len(result["questions"]) == 3
+
+
+def test_is_generic_explanation_detects_generic_text():
+    assert _is_generic_explanation(
+        "Gravity",
+        "This can be learned step by step by understanding the main idea.",
+    )
 
 
 def test_hint_reveals_answer_detection():
