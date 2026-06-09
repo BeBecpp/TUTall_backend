@@ -14,7 +14,8 @@ def test_explain_local_engine():
     body = response.json()
     assert body["topic"] == "Algebra basics"
     assert body["source"] == "accessstem_local"
-    assert body["debug_reason"]
+    assert body.get("debug_reason")
+    assert body.get("provider_attempts")
     assert len(body["key_points"]) >= 3
     assert body["safety_note"]
 
@@ -32,7 +33,8 @@ def test_quiz_local_engine_respects_question_count():
         assert response.status_code == 200
         body = response.json()
         assert body["source"] == "accessstem_local"
-        assert body["debug_reason"]
+        assert body.get("debug_reason")
+        assert body.get("provider_attempts")
         assert len(body["questions"]) == count
         for question in body["questions"]:
             assert len(question["options"]) == 4
@@ -55,7 +57,8 @@ def test_assistant_local_engine_shape():
     body = response.json()
     assert body["topic"] == "Newton's Laws"
     assert body["source"] == "accessstem_local"
-    assert body["debug_reason"]
+    assert body.get("debug_reason")
+    assert body.get("provider_attempts")
     assert body["answer"]
     assert len(body["key_points"]) >= 3
     assert body["example"]
@@ -86,7 +89,8 @@ def test_hint_local_engine():
     assert response.status_code == 200
     body = response.json()
     assert body["source"] == "accessstem_local"
-    assert body["debug_reason"]
+    assert body.get("debug_reason")
+    assert body.get("provider_attempts")
     assert body["reveals_answer"] is False
     assert "hint" in body
     assert "encouragement" in body
@@ -137,7 +141,8 @@ def test_study_plan_local_engine():
     assert response.status_code == 200
     body = response.json()
     assert body["source"] == "accessstem_local"
-    assert body["debug_reason"]
+    assert body.get("debug_reason")
+    assert body.get("provider_attempts")
     assert len(body["days"]) == 3
     assert body["days"][0]["tasks"]
     assert "linear equations" in body["days"][0]["focus"].lower() or "forces" in body["days"][1]["focus"].lower()

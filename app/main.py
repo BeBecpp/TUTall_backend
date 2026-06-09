@@ -9,7 +9,8 @@ from app.config import get_settings
 from app.errors import register_exception_handlers
 from app.rate_limit import RateLimitMiddleware
 from app.routes import accessstem, progress, scholarships
-from app.schemas import AiStatusResponse, HealthResponse, MetaResponse
+from app.providers import run_provider_diagnostics
+from app.schemas import AiStatusResponse, HealthResponse, MetaResponse, ProviderTestResponse
 from app.storage import init_db
 
 settings = get_settings()
@@ -104,6 +105,11 @@ def ai_status() -> dict:
         "groq_enabled": settings.groq_enabled,
         "active_strategy": settings.active_strategy,
     }
+
+
+@app.get("/api/ai/provider-test", response_model=ProviderTestResponse)
+def ai_provider_test() -> dict:
+    return run_provider_diagnostics()
 
 
 @app.get("/api/meta", response_model=MetaResponse)

@@ -44,10 +44,17 @@ SYSTEM_IDENTITY = (
 )
 
 
-def _extract_json(text: str) -> dict[str, Any]:
+def _repair_json_text(text: str) -> str:
     cleaned = text.strip()
     cleaned = re.sub(r"```(?:json)?", "", cleaned, flags=re.IGNORECASE)
     cleaned = cleaned.replace("```", "").strip()
+    cleaned = re.sub(r",\s*}", "}", cleaned)
+    cleaned = re.sub(r",\s*]", "]", cleaned)
+    return cleaned
+
+
+def _extract_json(text: str) -> dict[str, Any]:
+    cleaned = _repair_json_text(text)
 
     try:
         parsed = json.loads(cleaned)
@@ -75,26 +82,38 @@ def _extract_json(text: str) -> dict[str, Any]:
     raise json.JSONDecodeError("No valid JSON object found", cleaned, 0)
 
 
-def _extract_quiz_questions_from_text(text: str) -> list[dict[str, Any]] | None:
-    """Recover quiz questions from malformed or partial OpenRouter JSON."""
+def _extract_quiz_questions_from_text(text: str) -> list[dict[str, Any]]:
+    """Recover quiz questions from malformed or partial provider JSON."""
+    cleaned = _repair_json_text(text)
+
     try:
-        data = _extract_json(text)
+        data = _extract_json(cleaned)
         raw = data.get("questions", [])
         if isinstance(raw, list) and raw:
             return raw
     except json.JSONDecodeError:
         pass
 
-    match = re.search(r'"questions"\s*:\s*(\[[\s\S]*?\])\s*[,}]', text)
+    match = re.search(r'"questions"\s*:\s*(\[[\s\S]*?\])\s*[,}]', cleaned)
     if match:
         try:
-            parsed = json.loads(match.group(1))
+            parsed = json.loads(_repair_json_text(match.group(1)))
             if isinstance(parsed, list) and parsed:
                 return parsed
         except json.JSONDecodeError:
             pass
 
-    return None
+    object_matches = re.findall(r"\{[^{}]*\"question\"\s*:\s*\"[^\"]+\"[^{}]*\}", cleaned)
+    recovered: list[dict[str, Any]] = []
+    for chunk in object_matches:
+        try:
+            item = json.loads(_repair_json_text(chunk))
+            if isinstance(item, dict) and item.get("question"):
+                recovered.append(item)
+        except json.JSONDecodeError:
+            continue
+
+    return recovered
 
 
 def _truncate_words(text: str, max_words: int = 60) -> str:
@@ -160,20 +179,42 @@ def _ensure_no_guarantee(summary: str) -> str:
     return summary
 
 
-def _parse_quiz_questions(raw_questions: list[dict[str, Any]], topic: str) -> list[QuizQuestion]:
+def _normalize_quiz_options(raw_options: Any, topic: str, index: int) -> list[str]:
+    options = [str(opt).strip() for opt in (raw_options or []) if str(opt).strip()]
+    while len(options) < 4:
+        options.append(f"Option {len(options) + 1} for {topic}")
+    return options[:4]
+
+
+def _parse_quiz_questions(
+    raw_questions: list[dict[str, Any]],
+    topic: str,
+    *,
+    lenient: bool = False,
+) -> list[QuizQuestion]:
     questions: list[QuizQuestion] = []
     for index, raw in enumerate(raw_questions, start=1):
-        options = [opt.strip() for opt in raw.get("options", []) if opt and str(opt).strip()]
-        if len(options) != 4:
+        if not isinstance(raw, dict):
+            if lenient:
+                continue
+            raise ValueError("Invalid quiz question object")
+
+        options = _normalize_quiz_options(raw.get("options"), topic, index)
+        if not lenient and len([opt for opt in raw.get("options", []) if str(opt).strip()]) != 4:
             raise ValueError("Invalid quiz options count")
 
         question_text = str(raw.get("question", "")).strip()
         if not question_text:
+            if lenient:
+                continue
             raise ValueError("Quiz question text is empty")
 
         correct = _resolve_correct_answer(str(raw.get("correct_answer", "")).strip(), options)
         if not correct:
-            raise ValueError("Correct answer must match one option")
+            if lenient:
+                correct = options[0]
+            else:
+                raise ValueError("Correct answer must match one option")
 
         questions.append(
             QuizQuestion(
@@ -217,8 +258,17 @@ def _build_quiz_response(
     difficulty: str,
     question_count: int,
     source: str,
+    *,
+    lenient: bool = False,
 ) -> dict:
-    parsed = _parse_quiz_questions(data.get("questions", []), topic)
+    raw_questions = data.get("questions", [])
+    if not isinstance(raw_questions, list) or not raw_questions:
+        raise ValueError("No quiz questions found")
+
+    parsed = _parse_quiz_questions(raw_questions, topic, lenient=lenient)
+    if not parsed:
+        raise ValueError("No usable quiz questions")
+
     repaired = _repair_quiz_count(parsed, topic, question_count)
     if len(repaired) != question_count:
         raise ValueError("Quiz repair failed")
@@ -229,6 +279,25 @@ def _build_quiz_response(
         questions=repaired,
         source=source,
     ).model_dump()
+
+
+def _parse_quiz_from_provider_text(text: str, topic: str, difficulty: str, question_count: int, source: str) -> dict:
+    recovered = _extract_quiz_questions_from_text(text)
+    if recovered:
+        return _build_quiz_response(
+            {"topic": topic, "level": difficulty, "questions": recovered},
+            topic,
+            difficulty,
+            question_count,
+            source,
+            lenient=True,
+        )
+
+    try:
+        data = _extract_json(text)
+        return _build_quiz_response(data, topic, difficulty, question_count, source, lenient=True)
+    except json.JSONDecodeError as exc:
+        raise ValueError("No usable quiz content") from exc
 
 
 def _normalize_study_plan_days(
@@ -417,14 +486,7 @@ JSON:
 """
 
     def parse_quiz(text: str, source: str) -> dict:
-        try:
-            data = _extract_json(text)
-        except json.JSONDecodeError:
-            recovered = _extract_quiz_questions_from_text(text)
-            if not recovered:
-                raise ValueError("No usable quiz JSON") from None
-            data = {"topic": topic, "level": difficulty, "questions": recovered}
-        return _build_quiz_response(data, topic, difficulty, question_count, source)
+        return _parse_quiz_from_provider_text(text, topic, difficulty, question_count, source)
 
     return generate_with_providers(
         prompt,
@@ -586,9 +648,13 @@ JSON:
 def generate_scholarship_advice(profile: ScholarshipRequest) -> dict:
     base = fallback_scholarship_match(profile)
 
-    if not get_settings().openrouter_configured:
+    if not get_settings().ai_configured:
         base["source"] = "accessstem_local"
-        base["debug_reason"] = "openrouter_not_configured"
+        base["debug_reason"] = "ALL_PROVIDERS_FAILED"
+        base["provider_attempts"] = [
+            {"provider": provider, "ok": False, "error_code": "NOT_CONFIGURED"}
+            for provider in ("openrouter", "gemini", "groq")
+        ]
         return base
 
     prompt = f"""

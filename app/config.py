@@ -78,11 +78,21 @@ class Settings(BaseSettings):
 
     @property
     def gemini_configured(self) -> bool:
-        return bool(self.gemini_api_key.strip()) and self.enable_ai and self.enable_gemini
+        return (
+            bool(self.gemini_api_key.strip())
+            and self.enable_ai
+            and self.enable_gemini
+            and not self.demo_mode
+        )
 
     @property
     def groq_configured(self) -> bool:
-        return bool(self.groq_api_key.strip()) and self.enable_ai and self.enable_groq
+        return (
+            bool(self.groq_api_key.strip())
+            and self.enable_ai
+            and self.enable_groq
+            and not self.demo_mode
+        )
 
     @property
     def gemini_enabled(self) -> bool:
@@ -102,7 +112,7 @@ class Settings(BaseSettings):
 
     @property
     def active_strategy(self) -> str:
-        return "openrouter -> accessstem_local"
+        return "openrouter -> gemini -> groq -> accessstem_local"
 
     @property
     def database_configured(self) -> bool:

@@ -1,5 +1,6 @@
 import pytest
 
+from app.providers import ProviderCallResult
 from app.storage import reset_storage
 
 
@@ -12,5 +13,9 @@ def isolated_storage():
 
 @pytest.fixture(autouse=True)
 def disable_live_ai_providers(monkeypatch):
-    """Integration tests use local engine unless a test mocks OpenRouter explicitly."""
-    monkeypatch.setattr("app.providers.try_openrouter_text", lambda prompt: None)
+    """Integration tests use local engine unless a test mocks providers explicitly."""
+
+    def _disabled(_provider: str, _prompt: str) -> ProviderCallResult:
+        return ProviderCallResult(error_code="NOT_CONFIGURED")
+
+    monkeypatch.setattr("app.providers.try_provider_text", _disabled)

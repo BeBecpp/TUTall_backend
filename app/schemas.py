@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -26,6 +26,7 @@ class ExplainResponse(BaseModel):
     safety_note: str = SAFETY_NOTE
     source: str
     debug_reason: str | None = None
+    provider_attempts: list[dict[str, Any]] | None = None
 
 
 class QuizRequest(BaseModel):
@@ -57,6 +58,7 @@ class QuizResponse(BaseModel):
     questions: list[QuizQuestion]
     source: str
     debug_reason: str | None = None
+    provider_attempts: list[dict[str, Any]] | None = None
 
 
 class HintRequest(BaseModel):
@@ -72,6 +74,7 @@ class HintResponse(BaseModel):
     reveals_answer: bool = False
     source: str
     debug_reason: str | None = None
+    provider_attempts: list[dict[str, Any]] | None = None
 
 
 class CheckAnswerRequest(BaseModel):
@@ -105,6 +108,7 @@ class AssistantResponse(BaseModel):
     safety_note: str = SAFETY_NOTE
     source: str
     debug_reason: str | None = None
+    provider_attempts: list[dict[str, Any]] | None = None
 
 
 class StudyPlanRequest(BaseModel):
@@ -126,6 +130,7 @@ class StudyPlanResponse(BaseModel):
     days: list[StudyPlanDay]
     source: str
     debug_reason: str | None = None
+    provider_attempts: list[dict[str, Any]] | None = None
 
 
 class ScholarshipRequest(BaseModel):
@@ -164,6 +169,7 @@ class ScholarshipResponse(BaseModel):
     advisor: ScholarshipAdvisor
     source: str
     debug_reason: str | None = None
+    provider_attempts: list[dict[str, Any]] | None = None
 
 
 class ProgressCreateRequest(BaseModel):
@@ -213,6 +219,19 @@ class AiStatusResponse(BaseModel):
     gemini_enabled: bool
     groq_enabled: bool
     active_strategy: str
+
+
+class ProviderDiagnostic(BaseModel):
+    enabled: bool
+    configured: bool
+    ok: bool
+    error_code: str | None = None
+
+
+class ProviderTestResponse(BaseModel):
+    openrouter: ProviderDiagnostic
+    gemini: ProviderDiagnostic
+    groq: ProviderDiagnostic
 
 
 class MetaResponse(BaseModel):

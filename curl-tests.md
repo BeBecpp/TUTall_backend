@@ -27,8 +27,15 @@ Expected shape:
   "openrouter_enabled": true,
   "gemini_enabled": false,
   "groq_enabled": false,
-  "active_strategy": "openrouter -> accessstem_local"
+  "active_strategy": "openrouter -> gemini -> groq -> accessstem_local"
 }
+```
+
+## AI Provider Test
+
+```bash
+curl -s "$BASE_URL/api/ai/provider-test" | jq
+```
 ```
 
 ## API Meta

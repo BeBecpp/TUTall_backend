@@ -50,7 +50,7 @@ def _compare_answers(student_answer: str, correct_answer: str) -> bool:
 
 def _log_ai_request(endpoint: str, topic: str | None, result: dict) -> None:
     source = str(result.get("source", "unknown"))
-    is_ai_provider = source in {"openrouter", "gemini", "groq", "hybrid"}
+    is_ai_provider = source in {"openrouter", "gemini", "groq"}
     get_storage().log_ai_request(
         endpoint=endpoint,
         topic=topic,
