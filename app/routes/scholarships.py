@@ -8,7 +8,7 @@ from app.storage import get_storage
 router = APIRouter(prefix="/api/scholarships", tags=["Scholarships"])
 
 
-@router.post("/match", response_model=ScholarshipResponse)
+@router.post("/match", response_model=ScholarshipResponse, response_model_exclude_none=True)
 def match_scholarships(request: ScholarshipRequest) -> dict:
     payload = request.model_dump()
     payload["grade_level"] = validate_text_field(request.grade_level, "grade_level")
@@ -22,12 +22,12 @@ def match_scholarships(request: ScholarshipRequest) -> dict:
     result = generate_scholarship_advice(request)
     storage = get_storage()
     storage.save_scholarship_profile(request, result["overall_readiness_score"])
-    source = str(result.get("source", "hybrid"))
+    source = str(result.get("source", "accessstem_local"))
     storage.log_ai_request(
         endpoint="/api/scholarships/match",
         topic=request.intended_major,
         source=source,
         success=True,
-        error_code=None if source in {"hybrid", "gemini", "groq"} else "AI_FALLBACK",
+        error_code=None if source in {"openrouter", "hybrid", "gemini", "groq"} else "LOCAL_ENGINE",
     )
     return result

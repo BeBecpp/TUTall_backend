@@ -22,7 +22,7 @@ def fallback_explanation(topic: str, difficulty: str, low_bandwidth: bool = Fals
             "check_question": bundle["check_question"],
             "next_topics": bundle["next_topics"][:2],
             "safety_note": SAFETY_NOTE,
-            "source": "fallback",
+            "source": "accessstem_local",
         }
 
     return {
@@ -48,7 +48,7 @@ def fallback_explanation(topic: str, difficulty: str, low_bandwidth: bool = Fals
             f"Practice problems for {topic}",
         ],
         "safety_note": SAFETY_NOTE,
-        "source": "fallback",
+        "source": "accessstem_local",
     }
 
 
@@ -59,7 +59,7 @@ def fallback_quiz(topic: str, difficulty: str = "beginner", question_count: int 
         "topic": topic,
         "level": difficulty,
         "questions": questions,
-        "source": "fallback",
+        "source": "accessstem_local",
     }
 
 
@@ -79,7 +79,7 @@ def fallback_hint(topic: str, question: str, correct_answer: str) -> dict:
         "hint": hint,
         "encouragement": "You are closer than you think — review the concept and try again.",
         "reveals_answer": False,
-        "source": "fallback",
+        "source": "accessstem_local",
     }
 
 
@@ -148,7 +148,7 @@ def fallback_assistant(
         "next_steps": next_steps,
         "suggested_questions": suggested,
         "safety_note": SAFETY_NOTE,
-        "source": "fallback",
+        "source": "accessstem_local",
     }
 
 
@@ -179,7 +179,7 @@ def fallback_study_plan(
     return {
         "goal": goal,
         "days": days,
-        "source": "fallback",
+        "source": "accessstem_local",
     }
 
 
@@ -297,5 +297,5 @@ def fallback_scholarship_match(profile: ScholarshipRequest) -> dict:
             ],
             "warning": "This is an estimate and does not guarantee acceptance.",
         },
-        "source": "fallback",
+        "source": "accessstem_local",
     }

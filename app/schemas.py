@@ -25,6 +25,7 @@ class ExplainResponse(BaseModel):
     next_topics: list[str]
     safety_note: str = SAFETY_NOTE
     source: str
+    debug_reason: str | None = None
 
 
 class QuizRequest(BaseModel):
@@ -55,6 +56,7 @@ class QuizResponse(BaseModel):
     level: str
     questions: list[QuizQuestion]
     source: str
+    debug_reason: str | None = None
 
 
 class HintRequest(BaseModel):
@@ -69,6 +71,7 @@ class HintResponse(BaseModel):
     encouragement: str
     reveals_answer: bool = False
     source: str
+    debug_reason: str | None = None
 
 
 class CheckAnswerRequest(BaseModel):
@@ -101,6 +104,7 @@ class AssistantResponse(BaseModel):
     suggested_questions: list[str]
     safety_note: str = SAFETY_NOTE
     source: str
+    debug_reason: str | None = None
 
 
 class StudyPlanRequest(BaseModel):
@@ -121,6 +125,7 @@ class StudyPlanResponse(BaseModel):
     goal: str
     days: list[StudyPlanDay]
     source: str
+    debug_reason: str | None = None
 
 
 class ScholarshipRequest(BaseModel):
@@ -158,6 +163,7 @@ class ScholarshipResponse(BaseModel):
     matches: list[ScholarshipMatch]
     advisor: ScholarshipAdvisor
     source: str
+    debug_reason: str | None = None
 
 
 class ProgressCreateRequest(BaseModel):
@@ -194,10 +200,19 @@ class HealthResponse(BaseModel):
     service: str
     environment: str
     ai_configured: bool
+    openrouter_configured: bool
     gemini_configured: bool
     groq_configured: bool
     database_configured: bool
     version: str
+
+
+class AiStatusResponse(BaseModel):
+    openrouter_configured: bool
+    openrouter_enabled: bool
+    gemini_enabled: bool
+    groq_enabled: bool
+    active_strategy: str
 
 
 class MetaResponse(BaseModel):

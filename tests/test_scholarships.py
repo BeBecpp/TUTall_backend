@@ -25,5 +25,5 @@ def test_scholarship_match():
     assert body["overall_readiness_score"] >= 0
     assert len(body["matches"]) >= 1
     assert body["advisor"]["warning"]
-    assert body["source"] in {"fallback", "hybrid"}
+    assert body["source"] in {"accessstem_local", "openrouter"}
     assert "does not guarantee" in body["advisor"]["warning"].lower()

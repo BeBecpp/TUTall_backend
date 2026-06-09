@@ -75,6 +75,28 @@ def _extract_json(text: str) -> dict[str, Any]:
     raise json.JSONDecodeError("No valid JSON object found", cleaned, 0)
 
 
+def _extract_quiz_questions_from_text(text: str) -> list[dict[str, Any]] | None:
+    """Recover quiz questions from malformed or partial OpenRouter JSON."""
+    try:
+        data = _extract_json(text)
+        raw = data.get("questions", [])
+        if isinstance(raw, list) and raw:
+            return raw
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r'"questions"\s*:\s*(\[[\s\S]*?\])\s*[,}]', text)
+    if match:
+        try:
+            parsed = json.loads(match.group(1))
+            if isinstance(parsed, list) and parsed:
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+    return None
+
+
 def _truncate_words(text: str, max_words: int = 60) -> str:
     words = text.split()
     if len(words) <= max_words:
@@ -334,7 +356,7 @@ JSON:
   "check_question": "question about {topic}",
   "next_topics": ["related topic 1", "related topic 2"],
   "safety_note": "{SAFETY_NOTE}",
-  "source": "gemini"
+  "source": "openrouter"
 }}
 """
 
@@ -390,12 +412,18 @@ JSON:
       "concept": "concept label"
     }}
   ],
-  "source": "gemini"
+  "source": "openrouter"
 }}
 """
 
     def parse_quiz(text: str, source: str) -> dict:
-        data = _extract_json(text)
+        try:
+            data = _extract_json(text)
+        except json.JSONDecodeError:
+            recovered = _extract_quiz_questions_from_text(text)
+            if not recovered:
+                raise ValueError("No usable quiz JSON") from None
+            data = {"topic": topic, "level": difficulty, "questions": recovered}
         return _build_quiz_response(data, topic, difficulty, question_count, source)
 
     return generate_with_providers(
@@ -481,7 +509,7 @@ JSON:
       "estimated_minutes": 45
     }}
   ],
-  "source": "gemini"
+  "source": "openrouter"
 }}
 """
 
@@ -541,7 +569,7 @@ JSON:
   "next_steps": ["step 1", "step 2"],
   "suggested_questions": ["q1", "q2", "q3"],
   "safety_note": "{SAFETY_NOTE}",
-  "source": "gemini"
+  "source": "openrouter"
 }}
 """
 
@@ -557,9 +585,10 @@ JSON:
 
 def generate_scholarship_advice(profile: ScholarshipRequest) -> dict:
     base = fallback_scholarship_match(profile)
-    base["source"] = "hybrid"
 
-    if not get_settings().ai_configured:
+    if not get_settings().openrouter_configured:
+        base["source"] = "accessstem_local"
+        base["debug_reason"] = "openrouter_not_configured"
         return base
 
     prompt = f"""
@@ -589,7 +618,6 @@ JSON:
 """
 
     def parse_scholarship(text: str, source: str) -> dict:
-        _ = source
         ai_data = _extract_json(text)
         result = dict(base)
         result["profile_summary"] = ai_data.get("profile_summary", base["profile_summary"])
@@ -599,9 +627,8 @@ JSON:
         )
         result["advisor"]["next_steps"] = advisor.get("next_steps", base["advisor"]["next_steps"])[:5]
         result["advisor"]["warning"] = "This is an estimate and does not guarantee acceptance."
-        result["source"] = "hybrid"
+        result["source"] = source
+        result.pop("debug_reason", None)
         return ScholarshipResponse(**result).model_dump()
 
-    result = generate_with_providers(prompt, parse_scholarship, lambda: base)
-    result["source"] = "hybrid"
-    return result
+    return generate_with_providers(prompt, parse_scholarship, lambda: base)

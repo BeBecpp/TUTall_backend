@@ -9,7 +9,7 @@ from app.config import get_settings
 from app.errors import register_exception_handlers
 from app.rate_limit import RateLimitMiddleware
 from app.routes import accessstem, progress, scholarships
-from app.schemas import HealthResponse, MetaResponse
+from app.schemas import AiStatusResponse, HealthResponse, MetaResponse
 from app.storage import init_db
 
 settings = get_settings()
@@ -87,10 +87,22 @@ def health() -> dict:
         "service": settings.app_name,
         "environment": settings.app_env,
         "ai_configured": settings.ai_configured,
+        "openrouter_configured": settings.openrouter_configured,
         "gemini_configured": settings.gemini_configured,
         "groq_configured": settings.groq_configured,
         "database_configured": settings.database_configured,
         "version": settings.app_version,
+    }
+
+
+@app.get("/api/ai/status", response_model=AiStatusResponse)
+def ai_status() -> dict:
+    return {
+        "openrouter_configured": settings.openrouter_configured,
+        "openrouter_enabled": settings.openrouter_enabled,
+        "gemini_enabled": settings.gemini_enabled,
+        "groq_enabled": settings.groq_enabled,
+        "active_strategy": settings.active_strategy,
     }
 
 
@@ -108,7 +120,7 @@ def meta() -> dict:
             "study plan",
             "scholarship readiness",
             "progress tracking",
-            "fallback AI safety",
+            "AccessSTEM local engine safety",
         ],
     }
 

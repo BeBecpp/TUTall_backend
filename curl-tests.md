@@ -13,6 +13,24 @@ Replace `BASE_URL` with your local or deployed backend URL.
 curl -s "$BASE_URL/health" | jq
 ```
 
+## AI Provider Status
+
+```bash
+curl -s "$BASE_URL/api/ai/status" | jq
+```
+
+Expected shape:
+
+```json
+{
+  "openrouter_configured": true,
+  "openrouter_enabled": true,
+  "gemini_enabled": false,
+  "groq_enabled": false,
+  "active_strategy": "openrouter -> accessstem_local"
+}
+```
+
 ## API Meta
 
 ```bash
@@ -55,6 +73,21 @@ curl -s -X POST "$BASE_URL/api/accessstem/quiz" \
     "difficulty": "middle school",
     "question_count": 5
   }' | jq
+```
+
+Quiz counts `3`, `5`, and `7` are supported. Check `source` is `openrouter` or `accessstem_local` (never `fallback`).
+
+## OpenRouter Local Setup
+
+```bash
+export ENABLE_AI=true
+export ENABLE_OPENROUTER=true
+export OPENROUTER_API_KEY=your_key_here
+export OPENROUTER_MODEL=mistralai/mistral-7b-instruct:free
+export ENABLE_GEMINI=false
+export ENABLE_GROQ=false
+export DEMO_MODE=false
+uvicorn app.main:app --reload
 ```
 
 ## Hint Mode

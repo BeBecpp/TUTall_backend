@@ -1,4 +1,4 @@
-"""AI provider layer: Gemini (primary) -> Groq (secondary) -> fallback."""
+"""AI provider layer: OpenRouter -> AccessSTEM Local Engine."""
 
 from __future__ import annotations
 
@@ -7,108 +7,113 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
-from google import genai
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_SYSTEM_PROMPT = "You are AccessSTEM AI, a helpful STEM learning assistant."
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_SYSTEM_PROMPT = (
+    "You are AccessSTEM AI, a helpful STEM learning assistant for students."
+)
+OPENROUTER_HTTP_REFERER = "https://bebecpp.github.io/TUTall_frontend/"
+OPENROUTER_APP_TITLE = "TUTall AccessSTEM AI"
 REQUEST_TIMEOUT = 45.0
 
+SOURCE_OPENROUTER = "openrouter"
+SOURCE_LOCAL = "accessstem_local"
 
-def call_gemini_text(prompt: str) -> str:
+
+def call_openrouter_text(prompt: str) -> str:
     settings = get_settings()
-    if not settings.gemini_configured:
-        raise RuntimeError("Gemini is not configured")
-
-    client = genai.Client(api_key=settings.gemini_api_key)
-    response = client.models.generate_content(
-        model=settings.gemini_model,
-        contents=prompt,
-    )
-    text = (response.text or "").strip()
-    if not text:
-        raise RuntimeError("Empty Gemini response")
-    return text
-
-
-def call_groq_text(prompt: str) -> str:
-    settings = get_settings()
-    if not settings.groq_configured:
-        raise RuntimeError("Groq is not configured")
+    if not settings.openrouter_configured:
+        raise RuntimeError("OpenRouter is not configured")
 
     payload = {
-        "model": settings.groq_model,
+        "model": settings.openrouter_model,
         "messages": [
-            {"role": "system", "content": GROQ_SYSTEM_PROMPT},
+            {"role": "system", "content": OPENROUTER_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.4,
     }
     headers = {
-        "Authorization": f"Bearer {settings.groq_api_key}",
+        "Authorization": f"Bearer {settings.openrouter_api_key}",
         "Content-Type": "application/json",
+        "HTTP-Referer": OPENROUTER_HTTP_REFERER,
+        "X-Title": OPENROUTER_APP_TITLE,
     }
 
     with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
-        response = client.post(GROQ_API_URL, headers=headers, json=payload)
+        response = client.post(OPENROUTER_API_URL, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
 
     choices = data.get("choices") or []
     if not choices:
-        raise RuntimeError("Empty Groq response")
+        raise RuntimeError("Empty OpenRouter response")
 
     text = str(choices[0].get("message", {}).get("content", "")).strip()
     if not text:
-        raise RuntimeError("Empty Groq response text")
+        raise RuntimeError("Empty OpenRouter response text")
     return text
 
 
-def try_provider_text(provider: str, prompt: str) -> str | None:
+def try_openrouter_text(prompt: str) -> str | None:
     settings = get_settings()
-    if provider == "gemini" and not settings.gemini_configured:
-        return None
-    if provider == "groq" and not settings.groq_configured:
+    if not settings.openrouter_configured:
         return None
 
     try:
-        if provider == "gemini":
-            return call_gemini_text(prompt)
-        return call_groq_text(prompt)
+        return call_openrouter_text(prompt)
     except Exception as exc:
-        logger.warning("%s call failed: %s", provider.capitalize(), type(exc).__name__)
+        logger.warning("OpenRouter call failed: %s", type(exc).__name__)
         return None
+
+
+def _local_debug_reason(settings_reason: str | None = None) -> str:
+    settings = get_settings()
+    if not settings.enable_ai:
+        return "ai_disabled"
+    if settings.demo_mode:
+        return "demo_mode"
+    if not settings.enable_openrouter:
+        return "openrouter_disabled"
+    if not settings.openrouter_api_key.strip():
+        return "openrouter_not_configured"
+    return settings_reason or "openrouter_unavailable"
+
+
+def _apply_local_result(local_fn: Callable[[], dict[str, Any]], debug_reason: str) -> dict[str, Any]:
+    result = local_fn()
+    result["source"] = SOURCE_LOCAL
+    result["debug_reason"] = debug_reason
+    return result
 
 
 def generate_with_providers(
     prompt: str,
     parser: Callable[[str, str], dict[str, Any]],
-    fallback_fn: Callable[[], dict[str, Any]],
+    local_fn: Callable[[], dict[str, Any]],
 ) -> dict[str, Any]:
-    """Try Gemini, then Groq, then fallback. Parser receives (text, source)."""
-    for source in ("gemini", "groq"):
-        text = try_provider_text(source, prompt)
-        if not text:
-            continue
+    """Try OpenRouter first, then AccessSTEM Local Engine. Parser receives (text, source)."""
+    text = try_openrouter_text(prompt)
+    if text:
         try:
-            result = parser(text, source)
-            result["source"] = source
+            result = parser(text, SOURCE_OPENROUTER)
+            result["source"] = SOURCE_OPENROUTER
+            result.pop("debug_reason", None)
             return result
         except Exception as exc:
-            logger.warning("%s output unusable: %s", source.capitalize(), type(exc).__name__)
+            logger.warning("OpenRouter output unusable: %s", type(exc).__name__)
+            return _apply_local_result(local_fn, "openrouter_output_unusable")
 
-    fallback = fallback_fn()
-    fallback["source"] = "fallback"
-    return fallback
+    return _apply_local_result(local_fn, _local_debug_reason())
 
 
 def generate_text_with_providers(
     prompt: str,
     parser: Callable[[str, str], dict[str, Any]],
-    fallback_fn: Callable[[], dict[str, Any]],
+    local_fn: Callable[[], dict[str, Any]],
 ) -> dict[str, Any]:
     """Alias for plain-text endpoints like hint."""
-    return generate_with_providers(prompt, parser, fallback_fn)
+    return generate_with_providers(prompt, parser, local_fn)

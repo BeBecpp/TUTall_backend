@@ -10,10 +10,10 @@ The core engine is **AccessSTEM AI** — a secure learning assistant that helps 
 TUTall focuses on **Community & Access** and education equity. The frontend never calls Gemini directly. All AI requests flow through this backend:
 
 ```text
-Frontend → TUTall Backend → Gemini AI → TUTall Backend → Frontend
+Frontend → TUTall Backend → OpenRouter → TUTall Backend → Frontend
 ```
 
-AI provider chain: **Gemini → Groq → fallback**. If the primary provider fails, Groq is tried automatically before demo-safe fallback responses.
+AI provider chain: **OpenRouter → AccessSTEM Local Engine**. If OpenRouter fails, the backend uses the built-in local engine safely without exposing API keys or raw provider errors.
 
 ## Architecture
 
@@ -21,8 +21,9 @@ AI provider chain: **Gemini → Groq → fallback**. If the primary provider fai
 api/index.py          # Vercel serverless entrypoint
 app/main.py           # FastAPI app, middleware, routers
 app/config.py         # Environment settings
-app/ai_engine.py      # Gemini integration (google-genai)
-app/fallback.py       # Demo-safe fallback responses
+app/providers.py      # OpenRouter provider client
+app/ai_engine.py      # AccessSTEM AI generation logic
+app/fallback.py       # AccessSTEM local engine responses
 app/safety.py         # Input validation & prompt-injection defense
 app/rate_limit.py     # In-memory IP rate limiting
 app/storage.py        # Swappable in-memory progress store
@@ -44,6 +45,7 @@ tests/                # Pytest suite (no Gemini key required)
 |--------|----------|-------------|
 | `GET` | `/` | Service welcome |
 | `GET` | `/health` | Health check |
+| `GET` | `/api/ai/status` | AI provider status (no secrets) |
 | `GET` | `/api/meta` | Public API metadata |
 | `POST` | `/api/accessstem/assistant` | AI chatbot / help panel |
 | `POST` | `/api/accessstem/explain` | STEM topic explanation |
@@ -65,29 +67,33 @@ Copy `.env.example` to `.env`:
 ```env
 APP_NAME=TUTall Backend
 APP_ENV=development
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-1.5-flash
-GROQ_API_KEY=
-GROQ_MODEL=llama-3.1-8b-instant
-ALLOWED_ORIGINS=http://localhost:5500,http://127.0.0.1:5500,https://ajays22-orgs.github.io,https://ajays22-orgs.github.io/TUTall
+ENABLE_AI=true
+ENABLE_OPENROUTER=true
+OPENROUTER_API_KEY=
+OPENROUTER_MODEL=mistralai/mistral-7b-instruct:free
+ENABLE_GEMINI=false
+ENABLE_GROQ=false
+DEMO_MODE=false
+ALLOWED_ORIGINS=http://localhost:5500,http://127.0.0.1:5500,https://bebecpp.github.io/TUTall_frontend
 MAX_TOPIC_LENGTH=120
 MAX_TEXT_LENGTH=800
 RATE_LIMIT_PER_MINUTE=40
-ENABLE_AI=true
 DATABASE_URL=
 ```
 
 | Variable | Description |
 |----------|-------------|
-| `GEMINI_API_KEY` | Google Gemini API key (primary AI provider) |
-| `GEMINI_MODEL` | Model name, default `gemini-1.5-flash` |
-| `GROQ_API_KEY` | Groq API key (secondary AI provider) |
-| `GROQ_MODEL` | Groq model, default `llama-3.1-8b-instant` |
-| `ENABLE_AI` | Set `false` to force fallback mode |
+| `ENABLE_AI` | Master AI switch (`false` uses local engine only) |
+| `ENABLE_OPENROUTER` | Enable OpenRouter as primary provider |
+| `OPENROUTER_API_KEY` | OpenRouter API key (server-side only) |
+| `OPENROUTER_MODEL` | Model name, default `mistralai/mistral-7b-instruct:free` |
+| `ENABLE_GEMINI` | Legacy Gemini provider flag (default `false`) |
+| `ENABLE_GROQ` | Legacy Groq provider flag (default `false`) |
+| `DEMO_MODE` | Force local engine when `true` |
 | `ALLOWED_ORIGINS` | Comma-separated CORS origins |
 | `DATABASE_URL` | Supabase Postgres connection string (optional) |
 
-The backend **never crashes** if `GEMINI_API_KEY` or `DATABASE_URL` is missing.
+The backend **never crashes** if `OPENROUTER_API_KEY` or `DATABASE_URL` is missing.
 
 ## Supabase Postgres Setup
 
@@ -196,10 +202,13 @@ Ensure the repository root contains `api/index.py`, `app/`, `requirements.txt`, 
 
 In Vercel Project Settings → Environment Variables, add:
 
-- `GEMINI_API_KEY`
-- `GEMINI_MODEL`
-- `GROQ_API_KEY`
-- `GROQ_MODEL`
+- `ENABLE_AI=true`
+- `ENABLE_OPENROUTER=true`
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_MODEL=mistralai/mistral-7b-instruct:free`
+- `ENABLE_GEMINI=false`
+- `ENABLE_GROQ=false`
+- `DEMO_MODE=false`
 - `DATABASE_URL` (Supabase Postgres URI)
 - `ALLOWED_ORIGINS` (include your frontend URL)
 - `APP_ENV=production`
@@ -223,7 +232,7 @@ curl https://YOUR-PROJECT.vercel.app/health
 - Vercel entrypoint is `api/index.py`, which imports `app` from `app.main`.
 - The legacy `tutall-security-backend/` folder is excluded from serverless bundles.
 - Set `DATABASE_URL` to enable Supabase persistence; without it, progress uses in-memory fallback.
-- Set `ENABLE_AI=false` to force fallback mode even when a Gemini key exists.
+- Set `ENABLE_AI=false` or `DEMO_MODE=true` to force the AccessSTEM local engine.
 
 ## Frontend Integration
 
@@ -282,10 +291,14 @@ Future<Map<String, dynamic>> explainTopic(String topic) async {
 
 Check `source` in AI responses:
 
-- `"gemini"` — primary AI response
-- `"groq"` — secondary AI response (Gemini failed)
-- `"fallback"` — safe offline/demo response (both providers failed)
-- `"hybrid"` — scholarship endpoint (scoring + optional AI advice)
+- `"openrouter"` — live AI response from OpenRouter
+- `"accessstem_local"` — built-in local engine (OpenRouter failed); includes `debug_reason`
+
+Check provider status:
+
+```bash
+curl https://YOUR-PROJECT.vercel.app/api/ai/status
+```
 
 ## cURL Tests
 
@@ -293,7 +306,7 @@ See [curl-tests.md](./curl-tests.md) for copy-paste commands.
 
 ## AI Safety Notes
 
-- Gemini API key is **server-side only**
+- OpenRouter API key is **server-side only**
 - Prompt injection phrases are blocked with `400` errors
 - Hints never reveal the exact correct answer
 - Scholarship advice includes a non-guarantee warning
@@ -307,7 +320,7 @@ See [curl-tests.md](./curl-tests.md) for copy-paste commands.
 | In-memory fallback | Used when `DATABASE_URL` is missing or Postgres is temporarily unavailable |
 | In-memory rate limiting | Per-instance on Vercel; use Redis for production scale |
 | No authentication | Demo MVP; add JWT/session for production |
-| Fallback AI quality | Useful for demos, not a replacement for configured Gemini |
+| Local engine quality | Useful when OpenRouter is unavailable; configure OpenRouter for best results |
 
 ## Future Roadmap
 

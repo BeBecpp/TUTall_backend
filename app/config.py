@@ -13,6 +13,8 @@ DEFAULT_ORIGINS = [
     "http://127.0.0.1:5173",
     "https://ajays22-orgs.github.io",
     "https://ajays22-orgs.github.io/TUTall",
+    "https://bebecpp.github.io",
+    "https://bebecpp.github.io/TUTall_frontend",
 ]
 
 
@@ -20,6 +22,18 @@ class Settings(BaseSettings):
     app_name: str = Field(default="TUTall Backend", validation_alias="APP_NAME")
     app_env: str = Field(default="development", validation_alias="APP_ENV")
     app_version: str = "1.0.0"
+
+    enable_ai: bool = Field(default=True, validation_alias="ENABLE_AI")
+    enable_openrouter: bool = Field(default=True, validation_alias="ENABLE_OPENROUTER")
+    enable_gemini: bool = Field(default=False, validation_alias="ENABLE_GEMINI")
+    enable_groq: bool = Field(default=False, validation_alias="ENABLE_GROQ")
+    demo_mode: bool = Field(default=False, validation_alias="DEMO_MODE")
+
+    openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
+    openrouter_model: str = Field(
+        default="mistralai/mistral-7b-instruct:free",
+        validation_alias="OPENROUTER_MODEL",
+    )
 
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-1.5-flash", validation_alias="GEMINI_MODEL")
@@ -34,7 +48,6 @@ class Settings(BaseSettings):
     max_topic_length: int = Field(default=120, validation_alias="MAX_TOPIC_LENGTH")
     max_text_length: int = Field(default=800, validation_alias="MAX_TEXT_LENGTH")
     rate_limit_per_minute: int = Field(default=40, validation_alias="RATE_LIMIT_PER_MINUTE")
-    enable_ai: bool = Field(default=True, validation_alias="ENABLE_AI")
     database_url: str = Field(default="", validation_alias="DATABASE_URL")
 
     model_config = SettingsConfigDict(
@@ -55,16 +68,41 @@ class Settings(BaseSettings):
         return merged
 
     @property
+    def openrouter_configured(self) -> bool:
+        return (
+            bool(self.openrouter_api_key.strip())
+            and self.enable_ai
+            and self.enable_openrouter
+            and not self.demo_mode
+        )
+
+    @property
     def gemini_configured(self) -> bool:
-        return bool(self.gemini_api_key.strip()) and self.enable_ai
+        return bool(self.gemini_api_key.strip()) and self.enable_ai and self.enable_gemini
 
     @property
     def groq_configured(self) -> bool:
-        return bool(self.groq_api_key.strip()) and self.enable_ai
+        return bool(self.groq_api_key.strip()) and self.enable_ai and self.enable_groq
+
+    @property
+    def gemini_enabled(self) -> bool:
+        return self.enable_ai and self.enable_gemini
+
+    @property
+    def groq_enabled(self) -> bool:
+        return self.enable_ai and self.enable_groq
+
+    @property
+    def openrouter_enabled(self) -> bool:
+        return self.enable_ai and self.enable_openrouter and not self.demo_mode
 
     @property
     def ai_configured(self) -> bool:
-        return self.gemini_configured or self.groq_configured
+        return self.openrouter_configured or self.gemini_configured or self.groq_configured
+
+    @property
+    def active_strategy(self) -> str:
+        return "openrouter -> accessstem_local"
 
     @property
     def database_configured(self) -> bool:

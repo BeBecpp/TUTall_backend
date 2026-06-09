@@ -50,17 +50,17 @@ def _compare_answers(student_answer: str, correct_answer: str) -> bool:
 
 def _log_ai_request(endpoint: str, topic: str | None, result: dict) -> None:
     source = str(result.get("source", "unknown"))
-    is_ai_provider = source in {"gemini", "groq", "hybrid"}
+    is_ai_provider = source in {"openrouter", "gemini", "groq", "hybrid"}
     get_storage().log_ai_request(
         endpoint=endpoint,
         topic=topic,
         source=source,
         success=True,
-        error_code=None if is_ai_provider else "AI_FALLBACK",
+        error_code=None if is_ai_provider else "LOCAL_ENGINE",
     )
 
 
-@router.post("/assistant", response_model=AssistantResponse)
+@router.post("/assistant", response_model=AssistantResponse, response_model_exclude_none=True)
 def assistant(request: AssistantRequest) -> dict:
     topic = validate_topic(request.topic)
     question = validate_text_field(request.question, "question")
@@ -87,7 +87,7 @@ def assistant(request: AssistantRequest) -> dict:
     return result
 
 
-@router.post("/explain", response_model=ExplainResponse)
+@router.post("/explain", response_model=ExplainResponse, response_model_exclude_none=True)
 def explain(request: ExplainRequest) -> dict:
     topic = validate_topic(request.topic)
     check_payload_safety(request.model_dump())
@@ -96,7 +96,7 @@ def explain(request: ExplainRequest) -> dict:
     return result
 
 
-@router.post("/quiz", response_model=QuizResponse)
+@router.post("/quiz", response_model=QuizResponse, response_model_exclude_none=True)
 def quiz(request: QuizRequest) -> dict:
     topic = validate_topic(request.topic)
     check_payload_safety(request.model_dump())
@@ -105,7 +105,7 @@ def quiz(request: QuizRequest) -> dict:
     return result
 
 
-@router.post("/hint", response_model=HintResponse)
+@router.post("/hint", response_model=HintResponse, response_model_exclude_none=True)
 def hint(request: HintRequest) -> dict:
     topic = validate_topic(request.topic)
     question = validate_text_field(request.question, "question")
@@ -149,7 +149,7 @@ def check_answer(request: CheckAnswerRequest) -> dict:
     }
 
 
-@router.post("/study-plan", response_model=StudyPlanResponse)
+@router.post("/study-plan", response_model=StudyPlanResponse, response_model_exclude_none=True)
 def study_plan(request: StudyPlanRequest) -> dict:
     goal = validate_text_field(request.goal, "goal")
     grade_level = validate_text_field(request.grade_level, "grade_level")
