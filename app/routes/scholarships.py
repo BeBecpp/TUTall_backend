@@ -28,6 +28,6 @@ def match_scholarships(request: ScholarshipRequest) -> dict:
         topic=request.intended_major,
         source=source,
         success=True,
-        error_code=None if source in {"openrouter", "hybrid", "gemini", "groq"} else "LOCAL_ENGINE",
+        error_code=None if source in {"cohere", "openrouter", "gemini", "groq"} else "LOCAL_ENGINE",
     )
     return result

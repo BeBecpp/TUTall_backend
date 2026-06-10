@@ -201,11 +201,49 @@ class ProgressListResponse(BaseModel):
     completed_topics: int
 
 
+class ReviewQuizRequest(BaseModel):
+    topic: str = Field(..., min_length=1)
+    difficulty: Difficulty = "beginner"
+    score: int = Field(..., ge=0)
+    total: int = Field(..., ge=1, le=100)
+    weak_concepts: list[str] = Field(default_factory=list)
+
+
+class ReviewQuizResponse(BaseModel):
+    topic: str
+    summary: str
+    strengths: list[str]
+    improvements: list[str]
+    next_steps: list[str]
+    source: str
+    debug_reason: str | None = None
+    provider_attempts: list[dict[str, Any]] | None = None
+
+
+class RecommendNextRequest(BaseModel):
+    topic: str = Field(..., min_length=1)
+    difficulty: Difficulty = "beginner"
+    completed_topics: list[str] = Field(default_factory=list)
+    score: int | None = Field(default=None, ge=0)
+    total: int | None = Field(default=None, ge=1, le=100)
+
+
+class RecommendNextResponse(BaseModel):
+    current_topic: str
+    recommended_topics: list[str]
+    reason: str
+    study_tip: str
+    source: str
+    debug_reason: str | None = None
+    provider_attempts: list[dict[str, Any]] | None = None
+
+
 class HealthResponse(BaseModel):
     status: str
     service: str
     environment: str
     ai_configured: bool
+    cohere_configured: bool
     openrouter_configured: bool
     gemini_configured: bool
     groq_configured: bool
@@ -214,6 +252,9 @@ class HealthResponse(BaseModel):
 
 
 class AiStatusResponse(BaseModel):
+    cohere_enabled: bool
+    cohere_configured: bool
+    cohere_model: str
     openrouter_configured: bool
     openrouter_enabled: bool
     gemini_enabled: bool
@@ -229,6 +270,7 @@ class ProviderDiagnostic(BaseModel):
 
 
 class ProviderTestResponse(BaseModel):
+    cohere: ProviderDiagnostic
     openrouter: ProviderDiagnostic
     gemini: ProviderDiagnostic
     groq: ProviderDiagnostic

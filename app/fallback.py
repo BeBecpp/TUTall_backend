@@ -152,6 +152,63 @@ def fallback_assistant(
     }
 
 
+def fallback_review_quiz(
+    topic: str,
+    difficulty: str,
+    score: int,
+    total: int,
+    weak_concepts: list[str],
+) -> dict:
+    percentage = round((score / total) * 100) if total else 0
+    weak_list = weak_concepts or [f"core ideas of {topic}"]
+    return {
+        "topic": topic,
+        "summary": (
+            f"You scored {score}/{total} ({percentage}%) on the {topic} quiz "
+            f"at the {difficulty} level."
+        ),
+        "strengths": [
+            f"You attempted all questions on {topic}",
+            "You are building quiz-taking confidence",
+        ],
+        "improvements": [f"Review {concept}" for concept in weak_list[:3]],
+        "next_steps": [
+            f"Re-read the explanation for {topic}",
+            "Retry missed questions with hints",
+            "Take another short quiz to confirm understanding",
+        ],
+        "source": "accessstem_local",
+    }
+
+
+def fallback_recommend_next(
+    topic: str,
+    difficulty: str,
+    completed_topics: list[str],
+    score: int | None,
+    total: int | None,
+) -> dict:
+    _ = score, total
+    recommendations = [
+        f"Applications of {topic}",
+        f"Practice problems for {topic}",
+        f"Advanced ideas in {topic}",
+    ]
+    if completed_topics:
+        recommendations = [t for t in recommendations if t not in completed_topics][:3]
+
+    return {
+        "current_topic": topic,
+        "recommended_topics": recommendations,
+        "reason": (
+            f"These topics naturally follow {topic} at the {difficulty} level "
+            "and help deepen STEM understanding."
+        ),
+        "study_tip": "Study one recommended topic at a time and use short quizzes to check progress.",
+        "source": "accessstem_local",
+    }
+
+
 def fallback_study_plan(
     goal: str,
     grade_level: str,

@@ -23,11 +23,14 @@ Expected shape:
 
 ```json
 {
+  "cohere_enabled": true,
+  "cohere_configured": true,
+  "cohere_model": "command-r7b-12-2024",
   "openrouter_configured": true,
   "openrouter_enabled": true,
   "gemini_enabled": false,
   "groq_enabled": false,
-  "active_strategy": "openrouter -> gemini -> groq -> accessstem_local"
+  "active_strategy": "cohere -> openrouter -> gemini -> groq -> accessstem_local"
 }
 ```
 
@@ -36,6 +39,42 @@ Expected shape:
 ```bash
 curl -s "$BASE_URL/api/ai/provider-test" | jq
 ```
+
+## Cohere Local Setup
+
+```bash
+export ENABLE_COHERE=true
+export COHERE_API_KEY=your_key_here
+export COHERE_MODEL=command-r7b-12-2024
+uvicorn app.main:app --reload
+```
+
+## Review Quiz
+
+```bash
+curl -s -X POST "$BASE_URL/api/accessstem/review-quiz" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic": "Photosynthesis",
+    "difficulty": "beginner",
+    "score": 3,
+    "total": 5,
+    "weak_concepts": ["chlorophyll"]
+  }' | jq
+```
+
+## Recommend Next Topic
+
+```bash
+curl -s -X POST "$BASE_URL/api/accessstem/recommend-next" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic": "Photosynthesis",
+    "difficulty": "beginner",
+    "completed_topics": ["Cells"],
+    "score": 4,
+    "total": 5
+  }' | jq
 ```
 
 ## API Meta

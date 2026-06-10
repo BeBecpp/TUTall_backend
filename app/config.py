@@ -24,10 +24,14 @@ class Settings(BaseSettings):
     app_version: str = "1.0.0"
 
     enable_ai: bool = Field(default=True, validation_alias="ENABLE_AI")
+    enable_cohere: bool = Field(default=True, validation_alias="ENABLE_COHERE")
     enable_openrouter: bool = Field(default=True, validation_alias="ENABLE_OPENROUTER")
     enable_gemini: bool = Field(default=False, validation_alias="ENABLE_GEMINI")
     enable_groq: bool = Field(default=False, validation_alias="ENABLE_GROQ")
     demo_mode: bool = Field(default=False, validation_alias="DEMO_MODE")
+
+    cohere_api_key: str = Field(default="", validation_alias="COHERE_API_KEY")
+    cohere_model: str = Field(default="command-r7b-12-2024", validation_alias="COHERE_MODEL")
 
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
     openrouter_model: str = Field(
@@ -68,6 +72,15 @@ class Settings(BaseSettings):
         return merged
 
     @property
+    def cohere_configured(self) -> bool:
+        return (
+            bool(self.cohere_api_key.strip())
+            and self.enable_ai
+            and self.enable_cohere
+            and not self.demo_mode
+        )
+
+    @property
     def openrouter_configured(self) -> bool:
         return (
             bool(self.openrouter_api_key.strip())
@@ -95,6 +108,10 @@ class Settings(BaseSettings):
         )
 
     @property
+    def cohere_enabled(self) -> bool:
+        return self.enable_ai and self.enable_cohere and not self.demo_mode
+
+    @property
     def gemini_enabled(self) -> bool:
         return self.enable_ai and self.enable_gemini
 
@@ -108,11 +125,16 @@ class Settings(BaseSettings):
 
     @property
     def ai_configured(self) -> bool:
-        return self.openrouter_configured or self.gemini_configured or self.groq_configured
+        return (
+            self.cohere_configured
+            or self.openrouter_configured
+            or self.gemini_configured
+            or self.groq_configured
+        )
 
     @property
     def active_strategy(self) -> str:
-        return "openrouter -> gemini -> groq -> accessstem_local"
+        return "cohere -> openrouter -> gemini -> groq -> accessstem_local"
 
     @property
     def database_configured(self) -> bool:

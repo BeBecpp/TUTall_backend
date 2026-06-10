@@ -1,4 +1,4 @@
-"""AI provider layer: OpenRouter -> Gemini -> Groq -> AccessSTEM Local Engine."""
+"""AI provider layer: Cohere -> OpenRouter -> Gemini -> Groq -> AccessSTEM Local Engine."""
 
 from __future__ import annotations
 
@@ -14,15 +14,18 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+COHERE_API_URL = "https://api.cohere.com/v2/chat"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 SYSTEM_PROMPT = "You are AccessSTEM AI, a helpful STEM learning assistant for students."
 OPENROUTER_HTTP_REFERER = "https://bebecpp.github.io/TUTall_frontend/"
 OPENROUTER_APP_TITLE = "TUTall AccessSTEM AI"
+COHERE_CLIENT_NAME = "TUTall AccessSTEM AI"
 REQUEST_TIMEOUT = 45.0
-PROVIDER_ORDER = ("openrouter", "gemini", "groq")
+PROVIDER_ORDER = ("cohere", "openrouter", "gemini", "groq")
 PROVIDER_TEST_PROMPT = "Say only: provider works"
 
+SOURCE_COHERE = "cohere"
 SOURCE_OPENROUTER = "openrouter"
 SOURCE_GEMINI = "gemini"
 SOURCE_GROQ = "groq"
@@ -37,9 +40,6 @@ class ProviderCallResult:
 
 def _safe_error_code(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
-        status = exc.response.status_code
-        if status in {401, 403, 429, 500, 502, 503}:
-            return "RESTRICTED_OR_HTTP_ERROR"
         return "RESTRICTED_OR_HTTP_ERROR"
     message = str(exc).lower()
     if "empty" in message:
@@ -51,6 +51,8 @@ def _safe_error_code(exc: Exception) -> str:
 
 def _provider_enabled(provider: str) -> bool:
     settings = get_settings()
+    if provider == "cohere":
+        return settings.cohere_enabled
     if provider == "openrouter":
         return settings.openrouter_enabled
     if provider == "gemini":
@@ -62,6 +64,8 @@ def _provider_enabled(provider: str) -> bool:
 
 def _provider_configured(provider: str) -> bool:
     settings = get_settings()
+    if provider == "cohere":
+        return settings.cohere_configured
     if provider == "openrouter":
         return settings.openrouter_configured
     if provider == "gemini":
@@ -69,6 +73,49 @@ def _provider_configured(provider: str) -> bool:
     if provider == "groq":
         return settings.groq_configured
     return False
+
+
+def _extract_cohere_text(data: dict[str, Any]) -> str:
+    message = data.get("message") or {}
+    content = message.get("content") or []
+    if not content:
+        raise RuntimeError("Empty Cohere response")
+
+    first = content[0]
+    if isinstance(first, dict):
+        text = str(first.get("text", "")).strip()
+    else:
+        text = str(first).strip()
+
+    if not text:
+        raise RuntimeError("Empty Cohere response text")
+    return text
+
+
+def call_cohere_text(prompt: str) -> str:
+    settings = get_settings()
+    if not settings.cohere_configured:
+        raise RuntimeError("Cohere is not configured")
+
+    payload = {
+        "model": settings.cohere_model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.cohere_api_key}",
+        "Content-Type": "application/json",
+        "X-Client-Name": COHERE_CLIENT_NAME,
+    }
+
+    with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+        response = client.post(COHERE_API_URL, headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+
+    return _extract_cohere_text(data)
 
 
 def call_openrouter_text(prompt: str) -> str:
@@ -162,6 +209,8 @@ def try_provider_text(provider: str, prompt: str) -> ProviderCallResult:
         return ProviderCallResult(error_code="NOT_CONFIGURED")
 
     try:
+        if provider == "cohere":
+            return ProviderCallResult(text=call_cohere_text(prompt))
         if provider == "openrouter":
             return ProviderCallResult(text=call_openrouter_text(prompt))
         if provider == "gemini":
@@ -190,7 +239,7 @@ def generate_with_providers(
     parser: Callable[[str, str], dict[str, Any]],
     local_fn: Callable[[], dict[str, Any]],
 ) -> dict[str, Any]:
-    """Try OpenRouter, Gemini, Groq, then AccessSTEM Local Engine."""
+    """Try Cohere, OpenRouter, Gemini, Groq, then AccessSTEM Local Engine."""
     provider_attempts: list[dict[str, Any]] = []
 
     for provider in PROVIDER_ORDER:
@@ -279,6 +328,7 @@ def diagnose_provider(provider: str, prompt: str = PROVIDER_TEST_PROMPT) -> dict
 
 def run_provider_diagnostics() -> dict[str, dict[str, Any]]:
     return {
+        "cohere": diagnose_provider("cohere"),
         "openrouter": diagnose_provider("openrouter"),
         "gemini": diagnose_provider("gemini"),
         "groq": diagnose_provider("groq"),

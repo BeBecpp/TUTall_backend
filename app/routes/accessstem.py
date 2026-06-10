@@ -7,6 +7,8 @@ from app.ai_engine import (
     generate_explanation,
     generate_hint,
     generate_quiz,
+    generate_recommend_next,
+    generate_review_quiz,
     generate_study_plan,
 )
 from app.safety import check_payload_safety, validate_text_field, validate_topic
@@ -21,6 +23,10 @@ from app.schemas import (
     HintResponse,
     QuizRequest,
     QuizResponse,
+    RecommendNextRequest,
+    RecommendNextResponse,
+    ReviewQuizRequest,
+    ReviewQuizResponse,
     StudyPlanRequest,
     StudyPlanResponse,
 )
@@ -50,7 +56,7 @@ def _compare_answers(student_answer: str, correct_answer: str) -> bool:
 
 def _log_ai_request(endpoint: str, topic: str | None, result: dict) -> None:
     source = str(result.get("source", "unknown"))
-    is_ai_provider = source in {"openrouter", "gemini", "groq"}
+    is_ai_provider = source in {"cohere", "openrouter", "gemini", "groq"}
     get_storage().log_ai_request(
         endpoint=endpoint,
         topic=topic,
@@ -147,6 +153,38 @@ def check_answer(request: CheckAnswerRequest) -> dict:
         "feedback": feedback,
         "score_delta": score_delta,
     }
+
+
+@router.post("/review-quiz", response_model=ReviewQuizResponse, response_model_exclude_none=True)
+def review_quiz(request: ReviewQuizRequest) -> dict:
+    topic = validate_topic(request.topic)
+    weak_concepts = [validate_topic(c) for c in request.weak_concepts if c.strip()]
+    check_payload_safety({"topic": topic, "weak_concepts": weak_concepts})
+    result = generate_review_quiz(
+        topic,
+        request.difficulty,
+        request.score,
+        request.total,
+        weak_concepts,
+    )
+    _log_ai_request("/api/accessstem/review-quiz", topic, result)
+    return result
+
+
+@router.post("/recommend-next", response_model=RecommendNextResponse, response_model_exclude_none=True)
+def recommend_next(request: RecommendNextRequest) -> dict:
+    topic = validate_topic(request.topic)
+    completed = [validate_topic(t) for t in request.completed_topics if t.strip()]
+    check_payload_safety({"topic": topic, "completed_topics": completed})
+    result = generate_recommend_next(
+        topic,
+        request.difficulty,
+        completed,
+        request.score,
+        request.total,
+    )
+    _log_ai_request("/api/accessstem/recommend-next", topic, result)
+    return result
 
 
 @router.post("/study-plan", response_model=StudyPlanResponse, response_model_exclude_none=True)

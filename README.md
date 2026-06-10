@@ -10,10 +10,10 @@ The core engine is **AccessSTEM AI** — a secure learning assistant that helps 
 TUTall focuses on **Community & Access** and education equity. The frontend never calls Gemini directly. All AI requests flow through this backend:
 
 ```text
-Frontend → TUTall Backend → OpenRouter → TUTall Backend → Frontend
+Frontend → TUTall Backend → Cohere/OpenRouter/Gemini/Groq → TUTall Backend → Frontend
 ```
 
-AI provider chain: **OpenRouter → AccessSTEM Local Engine**. If OpenRouter fails, the backend uses the built-in local engine safely without exposing API keys or raw provider errors.
+AI provider chain: **Cohere → OpenRouter → Gemini → Groq → AccessSTEM Local Engine**. If live providers fail, the backend uses the built-in local engine safely without exposing API keys or raw provider errors.
 
 ## Architecture
 
@@ -68,6 +68,9 @@ Copy `.env.example` to `.env`:
 APP_NAME=TUTall Backend
 APP_ENV=development
 ENABLE_AI=true
+ENABLE_COHERE=true
+COHERE_API_KEY=
+COHERE_MODEL=command-r7b-12-2024
 ENABLE_OPENROUTER=true
 OPENROUTER_API_KEY=
 OPENROUTER_MODEL=mistralai/mistral-7b-instruct:free
@@ -84,7 +87,10 @@ DATABASE_URL=
 | Variable | Description |
 |----------|-------------|
 | `ENABLE_AI` | Master AI switch (`false` uses local engine only) |
-| `ENABLE_OPENROUTER` | Enable OpenRouter as primary provider |
+| `ENABLE_COHERE` | Enable Cohere as primary provider |
+| `COHERE_API_KEY` | Cohere API key (server-side only) |
+| `COHERE_MODEL` | Cohere model, default `command-r7b-12-2024` |
+| `ENABLE_OPENROUTER` | Enable OpenRouter as secondary provider |
 | `OPENROUTER_API_KEY` | OpenRouter API key (server-side only) |
 | `OPENROUTER_MODEL` | Model name, default `mistralai/mistral-7b-instruct:free` |
 | `ENABLE_GEMINI` | Legacy Gemini provider flag (default `false`) |
@@ -203,6 +209,9 @@ Ensure the repository root contains `api/index.py`, `app/`, `requirements.txt`, 
 In Vercel Project Settings → Environment Variables, add:
 
 - `ENABLE_AI=true`
+- `ENABLE_COHERE=true`
+- `COHERE_API_KEY`
+- `COHERE_MODEL=command-r7b-12-2024`
 - `ENABLE_OPENROUTER=true`
 - `OPENROUTER_API_KEY`
 - `OPENROUTER_MODEL=mistralai/mistral-7b-instruct:free`
@@ -291,8 +300,10 @@ Future<Map<String, dynamic>> explainTopic(String topic) async {
 
 Check `source` in AI responses:
 
+- `"cohere"` — live AI response from Cohere (primary)
 - `"openrouter"` — live AI response from OpenRouter
-- `"accessstem_local"` — built-in local engine (OpenRouter failed); includes `debug_reason`
+- `"gemini"` / `"groq"` — fallback live providers
+- `"accessstem_local"` — built-in local engine (all providers failed); includes `debug_reason` and `provider_attempts`
 
 Check provider status:
 
@@ -306,7 +317,7 @@ See [curl-tests.md](./curl-tests.md) for copy-paste commands.
 
 ## AI Safety Notes
 
-- OpenRouter API key is **server-side only**
+- Cohere, OpenRouter, Gemini, and Groq API keys are **server-side only**
 - Prompt injection phrases are blocked with `400` errors
 - Hints never reveal the exact correct answer
 - Scholarship advice includes a non-guarantee warning

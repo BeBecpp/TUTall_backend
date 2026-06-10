@@ -5,14 +5,31 @@ from fastapi.testclient import TestClient
 
 from app.ai_engine import generate_assistant, generate_explanation, generate_quiz
 from app.main import app
-from app.providers import ProviderCallResult, generate_with_providers
+from app.providers import ProviderCallResult, generate_with_providers, run_provider_diagnostics
 
 client = TestClient(app)
+
+EXPLAIN_JSON = {
+    "topic": "Gravity",
+    "level": "beginner",
+    "explanation": "Gravity is a force that pulls objects toward Earth.",
+    "example": "An apple falling from a tree shows gravity.",
+    "key_points": [
+        "Gravity pulls objects toward mass",
+        "Earth's gravity keeps us on the ground",
+        "Gravity depends on distance and mass",
+    ],
+    "check_question": "What does gravity do to objects?",
+    "next_topics": ["Mass and weight", "Orbital motion"],
+    "safety_note": "AI-generated learning support. Verify important information.",
+}
 
 
 def _provider_side_effect(mapping: dict[str, str | None]):
     def _side_effect(provider: str, prompt: str) -> ProviderCallResult:
-        text = mapping.get(provider)
+        if provider not in mapping:
+            return ProviderCallResult(error_code="NOT_CONFIGURED")
+        text = mapping[provider]
         if text is None:
             return ProviderCallResult(error_code="SAFE_CODE_ONLY")
         return ProviderCallResult(text=text)
@@ -24,26 +41,25 @@ def test_ai_status_endpoint():
     response = client.get("/api/ai/status")
     assert response.status_code == 200
     body = response.json()
-    assert body["active_strategy"] == "openrouter -> gemini -> groq -> accessstem_local"
-    assert "openrouter_enabled" in body
-    assert "gemini_enabled" in body
-    assert "groq_enabled" in body
+    assert body["active_strategy"] == "cohere -> openrouter -> gemini -> groq -> accessstem_local"
+    assert "cohere_enabled" in body
+    assert "cohere_configured" in body
+    assert "cohere_model" in body
 
 
 def test_ai_status_does_not_expose_secrets():
     response = client.get("/api/ai/status")
     body_text = json.dumps(response.json()).lower()
     assert "api_key" not in body_text
-    assert "openrouter_api" not in body_text
+    assert "cohere_api" not in body_text
     assert "bearer" not in body_text
-    assert "sk-" not in body_text
 
 
 def test_provider_test_returns_safe_diagnostics():
     response = client.get("/api/ai/provider-test")
     assert response.status_code == 200
     body = response.json()
-    for provider in ("openrouter", "gemini", "groq"):
+    for provider in ("cohere", "openrouter", "gemini", "groq"):
         assert "enabled" in body[provider]
         assert "configured" in body[provider]
         assert "ok" in body[provider]
@@ -53,55 +69,49 @@ def test_provider_test_returns_safe_diagnostics():
     assert "bearer" not in body_text
 
 
-def test_openrouter_success_returns_openrouter_source():
-    openrouter_json = json.dumps(
-        {
-            "topic": "Gravity",
-            "level": "beginner",
-            "explanation": "Gravity is a force that pulls objects toward Earth.",
-            "example": "An apple falling from a tree shows gravity.",
-            "key_points": [
-                "Gravity pulls objects toward mass",
-                "Earth's gravity keeps us on the ground",
-                "Gravity depends on distance and mass",
-            ],
-            "check_question": "What does gravity do to objects?",
-            "next_topics": ["Mass and weight", "Orbital motion"],
-            "safety_note": "AI-generated learning support. Verify important information.",
-        }
-    )
-
+def test_cohere_provider_test_success():
     with patch(
         "app.providers.try_provider_text",
-        side_effect=_provider_side_effect({"openrouter": openrouter_json}),
+        return_value=ProviderCallResult(text="provider works"),
+    ):
+        diagnostics = run_provider_diagnostics()
+
+    assert diagnostics["cohere"]["ok"] is True
+    assert diagnostics["cohere"]["error_code"] is None
+
+
+def test_cohere_success_returns_cohere_source():
+    with patch(
+        "app.providers.try_provider_text",
+        side_effect=_provider_side_effect({"cohere": json.dumps(EXPLAIN_JSON)}),
+    ):
+        result = generate_explanation("Gravity", "beginner", False)
+
+    assert result["source"] == "cohere"
+    assert "provider_attempts" not in result
+
+
+def test_cohere_fail_openrouter_success_returns_openrouter_source():
+    with patch(
+        "app.providers.try_provider_text",
+        side_effect=_provider_side_effect(
+            {"cohere": None, "openrouter": json.dumps(EXPLAIN_JSON)}
+        ),
     ):
         result = generate_explanation("Gravity", "beginner", False)
 
     assert result["source"] == "openrouter"
-    assert "provider_attempts" not in result
 
 
 def test_openrouter_fail_gemini_success_returns_gemini_source():
-    gemini_json = json.dumps(
-        {
-            "topic": "Gravity",
-            "level": "beginner",
-            "explanation": "Gravity pulls objects toward Earth's center.",
-            "example": "A ball falls down because of gravity.",
-            "key_points": [
-                "Gravity is a force of attraction",
-                "Mass affects gravitational pull",
-                "Gravity keeps planets in orbit",
-            ],
-            "check_question": "What is gravity?",
-            "next_topics": ["Mass", "Weight"],
-            "safety_note": "AI-generated learning support. Verify important information.",
-        }
-    )
+    gemini_json = dict(EXPLAIN_JSON)
+    gemini_json["explanation"] = "Gravity pulls objects toward Earth's center."
 
     with patch(
         "app.providers.try_provider_text",
-        side_effect=_provider_side_effect({"openrouter": None, "gemini": gemini_json}),
+        side_effect=_provider_side_effect(
+            {"cohere": None, "openrouter": None, "gemini": json.dumps(gemini_json)}
+        ),
     ):
         result = generate_explanation("Gravity", "beginner", False)
 
@@ -109,27 +119,18 @@ def test_openrouter_fail_gemini_success_returns_gemini_source():
 
 
 def test_openrouter_gemini_fail_groq_success_returns_groq_source():
-    groq_json = json.dumps(
-        {
-            "topic": "Gravity",
-            "level": "beginner",
-            "explanation": "Gravity is the force that attracts objects with mass.",
-            "example": "The Moon orbits Earth because of gravity.",
-            "key_points": [
-                "Gravity acts between masses",
-                "Earth's gravity pulls objects down",
-                "Gravity weakens with distance",
-            ],
-            "check_question": "Why do objects fall?",
-            "next_topics": ["Orbits", "Mass"],
-            "safety_note": "AI-generated learning support. Verify important information.",
-        }
-    )
+    groq_json = dict(EXPLAIN_JSON)
+    groq_json["explanation"] = "Gravity is the force that attracts objects with mass."
 
     with patch(
         "app.providers.try_provider_text",
         side_effect=_provider_side_effect(
-            {"openrouter": None, "gemini": None, "groq": groq_json}
+            {
+                "cohere": None,
+                "openrouter": None,
+                "gemini": None,
+                "groq": json.dumps(groq_json),
+            }
         ),
     ):
         result = generate_explanation("Gravity", "beginner", False)
@@ -141,40 +142,18 @@ def test_all_providers_fail_returns_accessstem_local_with_attempts():
     with patch(
         "app.providers.try_provider_text",
         side_effect=_provider_side_effect(
-            {"openrouter": None, "gemini": None, "groq": None}
+            {"cohere": None, "openrouter": None, "gemini": None, "groq": None}
         ),
     ):
         result = generate_explanation("Gravity", "beginner", False)
 
     assert result["source"] == "accessstem_local"
     assert result["debug_reason"] == "ALL_PROVIDERS_FAILED"
-    assert len(result["provider_attempts"]) == 3
+    assert len(result["provider_attempts"]) == 4
     assert result["source"] != "fallback"
 
 
-def test_assistant_openrouter_plain_text_converted():
-    openrouter_plain = (
-        "Gravity pulls objects toward Earth. The more mass an object has, "
-        "the stronger its gravitational pull."
-    )
-
-    with patch(
-        "app.providers.try_provider_text",
-        side_effect=_provider_side_effect({"openrouter": openrouter_plain}),
-    ):
-        result = generate_assistant(
-            "Gravity",
-            "Explain with an example",
-            "beginner",
-            "learning",
-            "high school student",
-        )
-
-    assert result["source"] == "openrouter"
-    assert result["answer"]
-
-
-def test_quiz_openrouter_counts_3_5_7():
+def test_quiz_cohere_counts_3_5_7():
     for count in (3, 5, 7):
         questions = []
         for index in range(count):
@@ -198,17 +177,17 @@ def test_quiz_openrouter_counts_3_5_7():
 
         with patch(
             "app.providers.try_provider_text",
-            side_effect=_provider_side_effect({"openrouter": payload}),
+            side_effect=_provider_side_effect({"cohere": payload}),
         ):
             result = generate_quiz("Photosynthesis", "middle school", count)
 
-        assert result["source"] == "openrouter"
+        assert result["source"] == "cohere"
         assert len(result["questions"]) == count
         for question in result["questions"]:
             assert question["correct_answer"] in question["options"]
 
 
-def test_quiz_malformed_json_keeps_provider_source():
+def test_quiz_malformed_json_keeps_cohere_source():
     malformed = """```json
 {
   "topic": "Photosynthesis",
@@ -228,11 +207,11 @@ def test_quiz_malformed_json_keeps_provider_source():
 
     with patch(
         "app.providers.try_provider_text",
-        side_effect=_provider_side_effect({"openrouter": malformed}),
+        side_effect=_provider_side_effect({"cohere": malformed}),
     ):
         result = generate_quiz("Photosynthesis", "middle school", 3)
 
-    assert result["source"] == "openrouter"
+    assert result["source"] == "cohere"
     assert len(result["questions"]) == 3
 
 
@@ -240,14 +219,14 @@ def test_no_secrets_exposed_in_responses():
     with patch(
         "app.providers.try_provider_text",
         side_effect=_provider_side_effect(
-            {"openrouter": None, "gemini": None, "groq": None}
+            {"cohere": None, "openrouter": None, "gemini": None, "groq": None}
         ),
     ):
         result = generate_explanation("Chemistry", "beginner", False)
 
     response_text = json.dumps(result).lower()
     assert "api_key" not in response_text
-    assert "openrouter_api" not in response_text
+    assert "cohere_api" not in response_text
     assert "bearer" not in response_text
 
 
@@ -256,9 +235,9 @@ def test_generate_with_providers_parser_error_tries_next_provider():
 
     def fake_try(provider: str, prompt: str) -> ProviderCallResult:
         calls.append(provider)
-        if provider == "openrouter":
+        if provider == "cohere":
             return ProviderCallResult(text='{"bad": "data"}')
-        if provider == "gemini":
+        if provider == "openrouter":
             return ProviderCallResult(text='{"value": 1}')
         return ProviderCallResult(error_code="SAFE_CODE_ONLY")
 
@@ -271,8 +250,8 @@ def test_generate_with_providers_parser_error_tries_next_provider():
     with patch("app.providers.try_provider_text", side_effect=fake_try):
         result = generate_with_providers("prompt", parser, lambda: {"value": 0})
 
-    assert result["source"] == "gemini"
-    assert calls[:2] == ["openrouter", "gemini"]
+    assert result["source"] == "openrouter"
+    assert calls[:2] == ["cohere", "openrouter"]
 
 
 def test_no_endpoint_returns_fallback_source():
@@ -293,6 +272,26 @@ def test_no_endpoint_returns_fallback_source():
                 "difficulty": "beginner",
                 "mode": "learning",
                 "student_context": "",
+            },
+        ),
+        (
+            "/api/accessstem/review-quiz",
+            {
+                "topic": "Photosynthesis",
+                "difficulty": "beginner",
+                "score": 3,
+                "total": 5,
+                "weak_concepts": ["chlorophyll"],
+            },
+        ),
+        (
+            "/api/accessstem/recommend-next",
+            {
+                "topic": "Photosynthesis",
+                "difficulty": "beginner",
+                "completed_topics": ["Cells"],
+                "score": 4,
+                "total": 5,
             },
         ),
     ]

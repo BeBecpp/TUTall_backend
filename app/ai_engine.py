@@ -9,6 +9,8 @@ from app.fallback import (
     fallback_explanation,
     fallback_hint,
     fallback_quiz,
+    fallback_recommend_next,
+    fallback_review_quiz,
     fallback_scholarship_match,
     fallback_study_plan,
 )
@@ -18,6 +20,8 @@ from app.schemas import (
     ExplainResponse,
     QuizQuestion,
     QuizResponse,
+    RecommendNextResponse,
+    ReviewQuizResponse,
     SAFETY_NOTE,
     ScholarshipRequest,
     ScholarshipResponse,
@@ -645,6 +649,90 @@ JSON:
     )
 
 
+def generate_review_quiz(
+    topic: str,
+    difficulty: str,
+    score: int,
+    total: int,
+    weak_concepts: list[str],
+) -> dict:
+    percentage = round((score / total) * 100) if total else 0
+    weak_list = ", ".join(weak_concepts) if weak_concepts else f"core ideas of {topic}"
+    prompt = f"""
+Return ONLY valid JSON. No markdown.
+
+{SYSTEM_IDENTITY}
+
+Review a student's quiz performance.
+Topic: {topic}
+Difficulty: {difficulty}
+Score: {score}/{total} ({percentage}%)
+Weak concepts: {weak_list}
+
+JSON:
+{{
+  "topic": "{topic}",
+  "summary": "short encouraging summary",
+  "strengths": ["strength 1", "strength 2"],
+  "improvements": ["improvement 1", "improvement 2", "improvement 3"],
+  "next_steps": ["step 1", "step 2", "step 3"]
+}}
+"""
+
+    def parse_review(text: str, source: str) -> dict:
+        data = _extract_json(text)
+        data["source"] = source
+        return ReviewQuizResponse(**data).model_dump()
+
+    return generate_with_providers(
+        prompt,
+        parse_review,
+        lambda: fallback_review_quiz(topic, difficulty, score, total, weak_concepts),
+    )
+
+
+def generate_recommend_next(
+    topic: str,
+    difficulty: str,
+    completed_topics: list[str],
+    score: int | None,
+    total: int | None,
+) -> dict:
+    completed_list = ", ".join(completed_topics) if completed_topics else "none"
+    score_text = f"{score}/{total}" if score is not None and total else "not provided"
+    prompt = f"""
+Return ONLY valid JSON. No markdown.
+
+{SYSTEM_IDENTITY}
+
+Recommend next STEM topics for a student.
+Current topic: {topic}
+Difficulty: {difficulty}
+Completed topics: {completed_list}
+Recent quiz score: {score_text}
+
+JSON:
+{{
+  "current_topic": "{topic}",
+  "recommended_topics": ["topic 1", "topic 2", "topic 3"],
+  "reason": "why these topics are good next steps",
+  "study_tip": "one practical study tip"
+}}
+"""
+
+    def parse_recommend(text: str, source: str) -> dict:
+        data = _extract_json(text)
+        data["source"] = source
+        data["recommended_topics"] = (data.get("recommended_topics") or [])[:5]
+        return RecommendNextResponse(**data).model_dump()
+
+    return generate_with_providers(
+        prompt,
+        parse_recommend,
+        lambda: fallback_recommend_next(topic, difficulty, completed_topics, score, total),
+    )
+
+
 def generate_scholarship_advice(profile: ScholarshipRequest) -> dict:
     base = fallback_scholarship_match(profile)
 
@@ -653,7 +741,7 @@ def generate_scholarship_advice(profile: ScholarshipRequest) -> dict:
         base["debug_reason"] = "ALL_PROVIDERS_FAILED"
         base["provider_attempts"] = [
             {"provider": provider, "ok": False, "error_code": "NOT_CONFIGURED"}
-            for provider in ("openrouter", "gemini", "groq")
+            for provider in ("cohere", "openrouter", "gemini", "groq")
         ]
         return base
 

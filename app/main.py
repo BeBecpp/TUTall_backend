@@ -88,6 +88,7 @@ def health() -> dict:
         "service": settings.app_name,
         "environment": settings.app_env,
         "ai_configured": settings.ai_configured,
+        "cohere_configured": settings.cohere_configured,
         "openrouter_configured": settings.openrouter_configured,
         "gemini_configured": settings.gemini_configured,
         "groq_configured": settings.groq_configured,
@@ -99,6 +100,9 @@ def health() -> dict:
 @app.get("/api/ai/status", response_model=AiStatusResponse)
 def ai_status() -> dict:
     return {
+        "cohere_enabled": settings.cohere_enabled,
+        "cohere_configured": settings.cohere_configured,
+        "cohere_model": settings.cohere_model,
         "openrouter_configured": settings.openrouter_configured,
         "openrouter_enabled": settings.openrouter_enabled,
         "gemini_enabled": settings.gemini_enabled,
