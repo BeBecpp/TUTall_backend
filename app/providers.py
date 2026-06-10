@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from google import genai
 
 from app.config import get_settings
 
@@ -156,6 +155,8 @@ def call_gemini_text(prompt: str) -> str:
     settings = get_settings()
     if not settings.gemini_configured:
         raise RuntimeError("Gemini is not configured")
+
+    from google import genai
 
     client = genai.Client(api_key=settings.gemini_api_key)
     response = client.models.generate_content(

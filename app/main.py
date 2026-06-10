@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from fastapi import FastAPI, Request
@@ -13,6 +14,7 @@ from app.providers import run_provider_diagnostics
 from app.schemas import AiStatusResponse, HealthResponse, MetaResponse, ProviderTestResponse
 from app.storage import init_db
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 app = FastAPI(
@@ -68,7 +70,10 @@ register_exception_handlers(app)
 
 @app.on_event("startup")
 def on_startup() -> None:
-    init_db()
+    try:
+        init_db()
+    except Exception as exc:
+        logger.warning("Startup init_db skipped: %s", type(exc).__name__)
 
 
 @app.get("/")
