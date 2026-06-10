@@ -5,10 +5,10 @@
       "excludeFiles": "{tests/**,scripts/**,tutall-security-backend/**,__pycache__/**,**/*.pyc,.pytest_cache/**,.venv/**,venv/**}"
     }
   },
-  "routes": [
+  "rewrites": [
     {
-      "src": "/(.*)",
-      "dest": "api/index.py"
+      "source": "/(.*)",
+      "destination": "/api/index"
     }
   ]
 }
