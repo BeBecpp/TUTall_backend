@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 COHERE_API_URL = "https://api.cohere.com/v2/chat"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 SYSTEM_PROMPT = "You are AccessSTEM AI, a helpful STEM learning assistant for students."
 OPENROUTER_HTTP_REFERER = "https://bebecpp.github.io/TUTall_frontend/"
 OPENROUTER_APP_TITLE = "TUTall AccessSTEM AI"
@@ -156,16 +157,34 @@ def call_gemini_text(prompt: str) -> str:
     if not settings.gemini_configured:
         raise RuntimeError("Gemini is not configured")
 
-    from google import genai
+    url = GEMINI_API_URL.format(model=settings.gemini_model)
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": f"{SYSTEM_PROMPT}\n\n{prompt}"},
+                ],
+            }
+        ],
+    }
 
-    client = genai.Client(api_key=settings.gemini_api_key)
-    response = client.models.generate_content(
-        model=settings.gemini_model,
-        contents=prompt,
-    )
-    text = (response.text or "").strip()
-    if not text:
+    with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+        response = client.post(
+            url,
+            params={"key": settings.gemini_api_key},
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    candidates = data.get("candidates") or []
+    if not candidates:
         raise RuntimeError("Empty Gemini response")
+
+    parts = candidates[0].get("content", {}).get("parts") or []
+    text = " ".join(str(part.get("text", "")).strip() for part in parts if part.get("text")).strip()
+    if not text:
+        raise RuntimeError("Empty Gemini response text")
     return text
 
 

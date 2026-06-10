@@ -322,6 +322,8 @@ class Storage:
 
         if not force_memory and settings.database_configured:
             try:
+                import psycopg  # noqa: F401
+
                 self._postgres = PostgresBackend(settings.database_url)
                 self._postgres_enabled = True
             except Exception as exc:
