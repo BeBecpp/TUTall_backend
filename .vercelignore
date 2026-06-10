@@ -1,0 +1,14 @@
+tests/
+scripts/
+.pytest_cache/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+README_MN.md
+curl-tests.md
+schema.sql
+requirements-dev.txt

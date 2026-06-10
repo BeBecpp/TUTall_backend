@@ -1,5 +1,6 @@
 import logging
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,12 +18,23 @@ from app.storage import init_db
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    try:
+        init_db()
+    except Exception as exc:
+        logger.warning("Startup init_db skipped: %s", type(exc).__name__)
+    yield
+
+
 app = FastAPI(
     title=settings.app_name,
     description="Secure FastAPI backend for TUTall / AccessSTEM AI.",
     version=settings.app_version,
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -66,14 +78,6 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIdMiddleware)
 
 register_exception_handlers(app)
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    try:
-        init_db()
-    except Exception as exc:
-        logger.warning("Startup init_db skipped: %s", type(exc).__name__)
 
 
 @app.get("/")
