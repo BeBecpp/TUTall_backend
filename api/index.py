@@ -1,4 +1,4 @@
-"""Vercel zero-config FastAPI entrypoint."""
+"""Vercel serverless entrypoint."""
 
 from app.main import app
 
