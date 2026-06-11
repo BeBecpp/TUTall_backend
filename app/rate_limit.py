@@ -11,7 +11,15 @@ from app.config import get_settings
 
 _request_buckets: dict[str, Deque[float]] = defaultdict(deque)
 _MAX_BUCKETS = 10_000
-_EXEMPT_PATHS = {"/", "/health", "/api/meta", "/docs", "/redoc", "/openapi.json"}
+_EXEMPT_PATHS = {
+    "/",
+    "/health",
+    "/api/meta",
+    "/api/debug/startup",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+}
 
 
 def _client_ip(request: Request) -> str:

@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.application import app
 
 client = TestClient(app)
 
@@ -70,7 +70,21 @@ def test_api_index_import():
     assert api_app is not None
 
 
-def test_app_main_import():
-    from app.main import app as main_app
+def test_app_application_import():
+    from app.application import app as application_app
 
-    assert main_app is not None
+    assert application_app is not None
+
+
+def test_app_main_shim_import():
+    from app.main import app as shim_app
+
+    assert shim_app is not None
+
+
+def test_startup_debug_endpoint():
+    response = client.get("/api/debug/startup")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["startup_ok"] is True
+    assert "api_key" not in str(body).lower()

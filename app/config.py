@@ -1,7 +1,11 @@
 from functools import lru_cache
+import logging
+import os
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 try:
     from dotenv import load_dotenv
@@ -23,6 +27,22 @@ DEFAULT_ORIGINS = [
     "https://bebecpp.github.io",
     "https://bebecpp.github.io/TUTall_frontend",
 ]
+
+
+def _coerce_bool(value: object, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"", "none", "null"}:
+            return default
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
 
 
 class Settings(BaseSettings):
@@ -65,6 +85,16 @@ class Settings(BaseSettings):
         extra="ignore",
         populate_by_name=True,
     )
+
+    @field_validator("enable_ai", "enable_cohere", "enable_openrouter", mode="before")
+    @classmethod
+    def _parse_true_default_bool(cls, value: object) -> bool:
+        return _coerce_bool(value, True)
+
+    @field_validator("enable_gemini", "enable_groq", "demo_mode", mode="before")
+    @classmethod
+    def _parse_false_default_bool(cls, value: object) -> bool:
+        return _coerce_bool(value, False)
 
     @property
     def cors_origins(self) -> list[str]:
@@ -146,6 +176,37 @@ class Settings(BaseSettings):
         return bool(self.database_url.strip())
 
 
+def _safe_default_settings() -> Settings:
+    return Settings.model_construct(
+        app_name="TUTall Backend",
+        app_env=os.getenv("APP_ENV", "production"),
+        app_version="1.0.0",
+        enable_ai=True,
+        enable_cohere=True,
+        enable_openrouter=True,
+        enable_gemini=False,
+        enable_groq=False,
+        demo_mode=False,
+        cohere_api_key="",
+        cohere_model="command-r7b-12-2024",
+        openrouter_api_key="",
+        openrouter_model="mistralai/mistral-7b-instruct:free",
+        gemini_api_key="",
+        gemini_model="gemini-1.5-flash",
+        groq_api_key="",
+        groq_model="llama-3.1-8b-instant",
+        allowed_origins=",".join(DEFAULT_ORIGINS),
+        max_topic_length=120,
+        max_text_length=800,
+        rate_limit_per_minute=40,
+        database_url="",
+    )
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    try:
+        return Settings()
+    except Exception as exc:
+        logger.warning("Settings validation failed; using safe defaults (%s)", type(exc).__name__)
+        return _safe_default_settings()

@@ -4,7 +4,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.ai_engine import generate_assistant, generate_explanation, generate_quiz
-from app.main import app
+from app.application import app
 from app.providers import ProviderCallResult, generate_with_providers, run_provider_diagnostics
 
 client = TestClient(app)
