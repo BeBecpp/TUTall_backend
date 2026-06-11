@@ -1,10 +1,14 @@
 from functools import lru_cache
 
-from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    pass
 
 DEFAULT_ORIGINS = [
     "https://tutall.vercel.app",
@@ -58,8 +62,6 @@ class Settings(BaseSettings):
     database_url: str = Field(default="", validation_alias="DATABASE_URL")
 
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
     )

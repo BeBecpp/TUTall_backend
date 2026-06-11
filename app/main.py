@@ -13,7 +13,6 @@ from app.rate_limit import RateLimitMiddleware
 from app.routes import accessstem, progress, scholarships
 from app.providers import run_provider_diagnostics
 from app.schemas import AiStatusResponse, HealthResponse, MetaResponse, ProviderTestResponse
-from app.storage import init_db
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -21,10 +20,7 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    try:
-        init_db()
-    except Exception as exc:
-        logger.warning("Startup init_db skipped: %s", type(exc).__name__)
+    # Database init is lazy — never block cold start on Vercel.
     yield
 
 
