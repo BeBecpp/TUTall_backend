@@ -1,34 +1,32 @@
 """Vercel serverless entrypoint — must never crash at import time."""
 
 import logging
+import os
+
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
 
-try:
-    from app.main import app as app
-except Exception:
-    logger.exception("Failed to load TUTall app")
 
-    from fastapi import FastAPI
-    from fastapi.responses import JSONResponse
+def _emergency_app() -> FastAPI:
+    emergency = FastAPI(title="TUTall Backend")
 
-    app = FastAPI(title="TUTall Backend")
-
-    @app.get("/health")
-    def boot_error_health() -> dict:
+    @emergency.get("/health")
+    def emergency_health() -> dict:
         return {
-            "status": "error",
+            "status": "ok",
             "service": "TUTall Backend",
-            "environment": "unknown",
+            "environment": os.getenv("APP_ENV", "production"),
             "ai_configured": False,
             "cohere_configured": False,
             "openrouter_configured": False,
-            "database_configured": False,
+            "database_configured": bool(os.getenv("DATABASE_URL", "").strip()),
             "version": "1.0.0",
         }
 
-    @app.api_route("/{path:path}", methods=["GET", "POST", "DELETE", "OPTIONS"])
-    def boot_error(path: str) -> JSONResponse:
+    @emergency.api_route("/{path:path}", methods=["GET", "POST", "DELETE", "OPTIONS"])
+    def emergency_handler(path: str) -> JSONResponse:
         return JSONResponse(
             status_code=503,
             content={
@@ -37,5 +35,14 @@ except Exception:
                 "path": f"/{path}",
             },
         )
+
+    return emergency
+
+
+try:
+    from app.main import app as app
+except Exception:
+    logger.exception("Failed to load TUTall app; serving emergency endpoints")
+    app = _emergency_app()
 
 __all__ = ["app"]
