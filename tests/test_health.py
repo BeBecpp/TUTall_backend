@@ -21,9 +21,21 @@ def test_health():
     assert "ai_configured" in body
     assert "cohere_configured" in body
     assert "openrouter_configured" in body
+    assert "database_configured" in body
+    assert "environment" in body
+    assert "COHERE_API_KEY" not in str(body)
+    assert "api_key" not in str(body).lower()
+
+
+def test_ai_status():
+    response = client.get("/api/ai/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["active_strategy"] == "cohere -> openrouter -> gemini -> groq -> accessstem_local"
+    assert "cohere_enabled" in body
     assert "gemini_configured" in body
     assert "groq_configured" in body
-    assert "database_configured" in body
+    assert "cohere_model" not in body
 
 
 def test_meta():
@@ -43,11 +55,22 @@ def test_security_headers():
     assert response.headers.get("X-Request-ID")
 
 
-def test_cors_allows_github_pages_and_localhost():
+def test_cors_allows_frontend_origins():
     from app.config import get_settings
 
     origins = get_settings().cors_origins
-    assert "https://ajays22-orgs.github.io" in origins
-    assert "https://ajays22-orgs.github.io/TUTall" in origins
+    assert "https://tutall.vercel.app" in origins
     assert "http://localhost:5173" in origins
-    assert "http://localhost:5500" in origins
+    assert "http://localhost:3000" in origins
+
+
+def test_api_index_import():
+    from api.index import app as api_app
+
+    assert api_app is not None
+
+
+def test_app_main_import():
+    from app.main import app as main_app
+
+    assert main_app is not None

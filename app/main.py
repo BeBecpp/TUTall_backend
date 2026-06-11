@@ -99,8 +99,6 @@ def health() -> dict:
         "ai_configured": settings.ai_configured,
         "cohere_configured": settings.cohere_configured,
         "openrouter_configured": settings.openrouter_configured,
-        "gemini_configured": settings.gemini_configured,
-        "groq_configured": settings.groq_configured,
         "database_configured": settings.database_configured,
         "version": settings.app_version,
     }
@@ -111,11 +109,12 @@ def ai_status() -> dict:
     return {
         "cohere_enabled": settings.cohere_enabled,
         "cohere_configured": settings.cohere_configured,
-        "cohere_model": settings.cohere_model,
-        "openrouter_configured": settings.openrouter_configured,
         "openrouter_enabled": settings.openrouter_enabled,
+        "openrouter_configured": settings.openrouter_configured,
         "gemini_enabled": settings.gemini_enabled,
+        "gemini_configured": settings.gemini_configured,
         "groq_enabled": settings.groq_enabled,
+        "groq_configured": settings.groq_configured,
         "active_strategy": settings.active_strategy,
     }
 

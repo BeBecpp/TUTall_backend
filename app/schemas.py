@@ -1,12 +1,19 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 Difficulty = Literal["beginner", "middle school", "high school", "advanced"]
 FinancialNeed = Literal["low", "medium", "high"]
 AssistantMode = Literal["learning", "quiz", "help", "review"]
+ScholarshipFit = Literal["High", "Medium", "Low"]
 
 SAFETY_NOTE = "AI-generated learning support. Verify important information."
+DEFAULT_QUOTE = "Understanding this topic is essential for STEM success."
+SCHOLARSHIP_DISCLAIMER = "This is guidance, not a guarantee of acceptance."
+
+ALLOWED_SOURCES = frozenset(
+    {"cohere", "openrouter", "gemini", "groq", "accessstem_local", "backend"}
+)
 
 
 class ExplainRequest(BaseModel):
@@ -17,13 +24,13 @@ class ExplainRequest(BaseModel):
 
 class ExplainResponse(BaseModel):
     topic: str
-    level: str
     explanation: str
-    example: str
+    key_concepts: list[str]
     key_points: list[str]
-    check_question: str
+    example: str
+    quote: str = DEFAULT_QUOTE
     next_topics: list[str]
-    safety_note: str = SAFETY_NOTE
+    check_question: str
     source: str
     debug_reason: str | None = None
     provider_attempts: list[dict[str, Any]] | None = None
@@ -36,9 +43,10 @@ class QuizRequest(BaseModel):
 
 
 class QuizQuestion(BaseModel):
-    id: str
+    id: int
     question: str
     options: list[str] = Field(..., min_length=4, max_length=4)
+    correct: int = Field(..., ge=0, le=3)
     correct_answer: str
     explanation: str
     concept: str
@@ -54,7 +62,7 @@ class QuizQuestion(BaseModel):
 
 class QuizResponse(BaseModel):
     topic: str
-    level: str
+    difficulty: str
     questions: list[QuizQuestion]
     source: str
     debug_reason: str | None = None
@@ -99,13 +107,11 @@ class AssistantRequest(BaseModel):
 
 
 class AssistantResponse(BaseModel):
-    topic: str
     answer: str
     key_points: list[str]
     example: str
     next_steps: list[str]
     suggested_questions: list[str]
-    safety_note: str = SAFETY_NOTE
     source: str
     debug_reason: str | None = None
     provider_attempts: list[dict[str, Any]] | None = None
@@ -134,39 +140,49 @@ class StudyPlanResponse(BaseModel):
 
 
 class ScholarshipRequest(BaseModel):
-    grade_level: str = Field(..., min_length=1)
     gpa: float = Field(..., ge=0, le=4)
     country: str = Field(..., min_length=1)
-    intended_major: str = Field(..., min_length=1)
-    english_level: str = Field(..., min_length=1)
-    financial_need: FinancialNeed = "medium"
+    intended_major: str = Field(default="", max_length=120)
+    major: str = Field(default="", max_length=120)
+    first_generation: bool = False
+    financial_need: bool | FinancialNeed = "medium"
+    grade_level: str = Field(default="11", max_length=20)
+    english_level: str = Field(default="B2", max_length=20)
     activities: str = ""
     has_essay: bool = False
     has_english_test: bool = False
 
+    @model_validator(mode="after")
+    def normalize_profile(self) -> "ScholarshipRequest":
+        if not self.intended_major.strip() and self.major.strip():
+            self.intended_major = self.major.strip()
+        if not self.intended_major.strip():
+            self.intended_major = "STEM"
+        return self
 
-class ScholarshipMatch(BaseModel):
+    @property
+    def financial_need_level(self) -> FinancialNeed:
+        if isinstance(self.financial_need, bool):
+            return "high" if self.financial_need else "low"
+        return self.financial_need
+
+
+class RecommendedScholarship(BaseModel):
     name: str
-    category: str
-    fit_score: int = Field(..., ge=0, le=100)
-    estimated_amount: int
-    deadline: str
-    strengths: list[str]
-    improvements: list[str]
-    required_documents: list[str]
-
-
-class ScholarshipAdvisor(BaseModel):
-    summary: str
-    next_steps: list[str]
-    warning: str = "This is an estimate and does not guarantee acceptance."
+    fit: ScholarshipFit
+    reason: str
 
 
 class ScholarshipResponse(BaseModel):
-    profile_summary: str
-    overall_readiness_score: int = Field(..., ge=0, le=100)
-    matches: list[ScholarshipMatch]
-    advisor: ScholarshipAdvisor
+    fit_score: int = Field(..., ge=0, le=100)
+    readiness_score: int = Field(..., ge=0, le=100)
+    summary: str
+    strengths: list[str]
+    improvements: list[str]
+    recommended_scholarships: list[RecommendedScholarship]
+    required_documents: list[str]
+    next_steps: list[str]
+    disclaimer: str = SCHOLARSHIP_DISCLAIMER
     source: str
     debug_reason: str | None = None
     provider_attempts: list[dict[str, Any]] | None = None
@@ -191,7 +207,29 @@ class ProgressItem(BaseModel):
 
 class ProgressSaveResponse(BaseModel):
     saved: bool
-    item: ProgressItem
+    student_id: str
+    topic: str
+    score: int
+    total: int
+    percentage: int
+
+
+class RecentScore(BaseModel):
+    topic: str
+    score: int
+    total: int
+    percentage: int
+
+
+class DashboardResponse(BaseModel):
+    student_id: str
+    topics_completed: int
+    quizzes_taken: int
+    average_score: int
+    last_topic: str
+    recent_scores: list[RecentScore]
+    recommended_next_topic: str
+    source: str = "backend"
 
 
 class ProgressListResponse(BaseModel):
@@ -245,8 +283,6 @@ class HealthResponse(BaseModel):
     ai_configured: bool
     cohere_configured: bool
     openrouter_configured: bool
-    gemini_configured: bool
-    groq_configured: bool
     database_configured: bool
     version: str
 
@@ -254,11 +290,12 @@ class HealthResponse(BaseModel):
 class AiStatusResponse(BaseModel):
     cohere_enabled: bool
     cohere_configured: bool
-    cohere_model: str
-    openrouter_configured: bool
     openrouter_enabled: bool
+    openrouter_configured: bool
     gemini_enabled: bool
+    gemini_configured: bool
     groq_enabled: bool
+    groq_configured: bool
     active_strategy: str
 
 

@@ -21,7 +21,7 @@ def match_scholarships(request: ScholarshipRequest) -> dict:
 
     result = generate_scholarship_advice(request)
     storage = get_storage()
-    storage.save_scholarship_profile(request, result["overall_readiness_score"])
+    storage.save_scholarship_profile(request, result["readiness_score"])
     source = str(result.get("source", "accessstem_local"))
     storage.log_ai_request(
         endpoint="/api/scholarships/match",

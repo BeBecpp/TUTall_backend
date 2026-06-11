@@ -6,11 +6,22 @@ def test_in_memory_save_and_list_progress():
     storage = Storage(force_memory=True)
     saved = storage.save_progress("student-1", "Algebra", 4, 5)
     assert saved.saved is True
-    assert saved.item.percentage == 80
+    assert saved.percentage == 80
+    assert saved.student_id == "student-1"
 
     listed = storage.list_progress("student-1")
     assert len(listed.items) == 1
     assert listed.average_percentage == 80
+
+
+def test_in_memory_dashboard():
+    storage = Storage(force_memory=True)
+    storage.save_progress("student-dashboard", "Photosynthesis", 4, 5)
+    dashboard = storage.get_dashboard("student-dashboard")
+    assert dashboard.student_id == "student-dashboard"
+    assert dashboard.quizzes_taken == 1
+    assert dashboard.last_topic == "Photosynthesis"
+    assert dashboard.recommended_next_topic
 
 
 def test_in_memory_clear_progress():
@@ -38,7 +49,7 @@ def test_in_memory_save_scholarship_profile():
     storage.log_ai_request(
         endpoint="/api/scholarships/match",
         topic="Computer Science",
-        source="hybrid",
+        source="accessstem_local",
         success=True,
     )
 

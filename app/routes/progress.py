@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Query
 
 from app.safety import validate_text_field, validate_topic
-from app.schemas import ProgressCreateRequest, ProgressListResponse, ProgressSaveResponse
+from app.schemas import DashboardResponse, ProgressCreateRequest, ProgressListResponse, ProgressSaveResponse
 from app.storage import get_storage
 
 router = APIRouter(prefix="/api/progress", tags=["Progress"])
@@ -14,6 +14,13 @@ def save_progress(request: ProgressCreateRequest) -> dict:
     storage = get_storage()
     result = storage.save_progress(student_id, topic, request.score, request.total)
     return result.model_dump()
+
+
+@router.get("/dashboard", response_model=DashboardResponse)
+def progress_dashboard(student_id: str = Query(..., min_length=1)) -> dict:
+    student_id = validate_text_field(student_id, "student_id")
+    storage = get_storage()
+    return storage.get_dashboard(student_id).model_dump()
 
 
 @router.get("", response_model=ProgressListResponse)

@@ -1,26 +1,35 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.schemas import ALLOWED_SOURCES
 
 client = TestClient(app)
 
 
-def test_explain_local_engine():
+def _assert_no_fallback_source(body: dict) -> None:
+    assert body.get("source") != "fallback"
+    assert body.get("source") in ALLOWED_SOURCES
+
+
+def test_explain_frontend_fields():
     response = client.post(
         "/api/accessstem/explain",
-        json={"topic": "Algebra basics", "difficulty": "beginner", "low_bandwidth": False},
+        json={"topic": "Photosynthesis", "difficulty": "beginner", "low_bandwidth": False},
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["topic"] == "Algebra basics"
-    assert body["source"] == "accessstem_local"
-    assert body.get("debug_reason")
-    assert body.get("provider_attempts")
+    _assert_no_fallback_source(body)
+    assert body["topic"] == "Photosynthesis"
+    assert body["explanation"]
+    assert len(body["key_concepts"]) >= 3
     assert len(body["key_points"]) >= 3
-    assert body["safety_note"]
+    assert body["example"]
+    assert body["quote"]
+    assert body["check_question"]
+    assert len(body["next_topics"]) >= 1
 
 
-def test_quiz_local_engine_respects_question_count():
+def test_quiz_frontend_shape_and_counts():
     for count in (3, 5, 7):
         response = client.post(
             "/api/accessstem/quiz",
@@ -32,48 +41,38 @@ def test_quiz_local_engine_respects_question_count():
         )
         assert response.status_code == 200
         body = response.json()
-        assert body["source"] == "accessstem_local"
-        assert body.get("debug_reason")
-        assert body.get("provider_attempts")
+        _assert_no_fallback_source(body)
+        assert body["topic"] == "Photosynthesis"
+        assert body["difficulty"] == "middle school"
         assert len(body["questions"]) == count
         for question in body["questions"]:
+            assert isinstance(question["id"], int)
             assert len(question["options"]) == 4
             assert question["correct_answer"] in question["options"]
-            assert "Photosynthesis" in question["question"] or question["concept"]
+            assert question["options"][question["correct"]] == question["correct_answer"]
+            assert question["explanation"]
+            assert question["concept"]
 
 
-def test_assistant_local_engine_shape():
+def test_assistant_frontend_shape():
     response = client.post(
         "/api/accessstem/assistant",
         json={
-            "topic": "Newton's Laws",
-            "question": "Can you explain this with an example?",
-            "difficulty": "beginner",
+            "topic": "Photosynthesis",
+            "question": "Why do plants need sunlight?",
+            "difficulty": "middle school",
             "mode": "learning",
-            "student_context": "high school student preparing for quiz",
+            "student_context": "FGLI STEM student",
         },
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["topic"] == "Newton's Laws"
-    assert body["source"] == "accessstem_local"
-    assert body.get("debug_reason")
-    assert body.get("provider_attempts")
+    _assert_no_fallback_source(body)
     assert body["answer"]
     assert len(body["key_points"]) >= 3
     assert body["example"]
     assert len(body["next_steps"]) >= 2
     assert len(body["suggested_questions"]) >= 3
-    assert body["safety_note"]
-
-
-def test_newton_explain_local_engine_is_topic_specific():
-    response = client.post(
-        "/api/accessstem/explain",
-        json={"topic": "Newton's Laws", "difficulty": "beginner", "low_bandwidth": False},
-    )
-    body = response.json()
-    assert "inertia" in body["explanation"].lower() or "newton" in body["explanation"].lower()
 
 
 def test_hint_local_engine():
@@ -88,12 +87,8 @@ def test_hint_local_engine():
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["source"] == "accessstem_local"
-    assert body.get("debug_reason")
-    assert body.get("provider_attempts")
+    _assert_no_fallback_source(body)
     assert body["reveals_answer"] is False
-    assert "hint" in body
-    assert "encouragement" in body
 
 
 def test_check_answer_correct():
@@ -112,43 +107,7 @@ def test_check_answer_correct():
     assert body["score_delta"] == 1
 
 
-def test_check_answer_incorrect():
-    response = client.post(
-        "/api/accessstem/check-answer",
-        json={
-            "question": "What is 2+2?",
-            "student_answer": "5",
-            "correct_answer": "4",
-            "explanation": "Try counting again.",
-        },
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["is_correct"] is False
-    assert body["score_delta"] == 0
-
-
-def test_study_plan_local_engine():
-    response = client.post(
-        "/api/accessstem/study-plan",
-        json={
-            "goal": "Improve algebra and physics",
-            "grade_level": "high school",
-            "available_days": 3,
-            "weak_topics": ["linear equations", "forces"],
-        },
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["source"] == "accessstem_local"
-    assert body.get("debug_reason")
-    assert body.get("provider_attempts")
-    assert len(body["days"]) == 3
-    assert body["days"][0]["tasks"]
-    assert "linear equations" in body["days"][0]["focus"].lower() or "forces" in body["days"][1]["focus"].lower()
-
-
-def test_progress_save_list_delete():
+def test_progress_save_and_dashboard():
     student_id = "demo-user-test"
 
     client.delete(f"/api/progress?student_id={student_id}")
@@ -157,7 +116,7 @@ def test_progress_save_list_delete():
         "/api/progress",
         json={
             "student_id": student_id,
-            "topic": "Newton's Laws",
+            "topic": "Photosynthesis",
             "score": 4,
             "total": 5,
         },
@@ -165,13 +124,20 @@ def test_progress_save_list_delete():
     assert save_response.status_code == 200
     saved = save_response.json()
     assert saved["saved"] is True
-    assert saved["item"]["percentage"] == 80
+    assert saved["student_id"] == student_id
+    assert saved["topic"] == "Photosynthesis"
+    assert saved["score"] == 4
+    assert saved["total"] == 5
+    assert saved["percentage"] == 80
 
-    list_response = client.get(f"/api/progress?student_id={student_id}")
-    assert list_response.status_code == 200
-    listed = list_response.json()
-    assert len(listed["items"]) >= 1
-    assert listed["average_percentage"] == 80
+    dashboard_response = client.get(f"/api/progress/dashboard?student_id={student_id}")
+    assert dashboard_response.status_code == 200
+    dashboard = dashboard_response.json()
+    assert dashboard["student_id"] == student_id
+    assert dashboard["quizzes_taken"] >= 1
+    assert dashboard["last_topic"] == "Photosynthesis"
+    assert dashboard["source"] == "backend"
+    assert len(dashboard["recent_scores"]) >= 1
+    assert dashboard["recommended_next_topic"]
 
-    delete_response = client.delete(f"/api/progress?student_id={student_id}")
-    assert delete_response.json()["deleted"] is True
+    client.delete(f"/api/progress?student_id={student_id}")

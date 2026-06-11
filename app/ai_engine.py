@@ -16,6 +16,7 @@ from app.fallback import (
 )
 from app.providers import generate_with_providers, generate_text_with_providers
 from app.schemas import (
+    DEFAULT_QUOTE,
     AssistantResponse,
     ExplainResponse,
     QuizQuestion,
@@ -23,6 +24,7 @@ from app.schemas import (
     RecommendNextResponse,
     ReviewQuizResponse,
     SAFETY_NOTE,
+    SCHOLARSHIP_DISCLAIMER,
     ScholarshipRequest,
     ScholarshipResponse,
     StudyPlanDay,
@@ -190,6 +192,32 @@ def _normalize_quiz_options(raw_options: Any, topic: str, index: int) -> list[st
     return options[:4]
 
 
+def _correct_index(options: list[str], correct_answer: str) -> int:
+    try:
+        return options.index(correct_answer)
+    except ValueError:
+        return 0
+
+
+def _dict_to_quiz_question(raw: dict[str, Any], index: int, topic: str) -> QuizQuestion:
+    options = _normalize_quiz_options(raw.get("options"), topic, index)
+    correct_answer = _resolve_correct_answer(str(raw.get("correct_answer", "")).strip(), options) or options[0]
+    if "correct" in raw and isinstance(raw["correct"], int) and 0 <= raw["correct"] < len(options):
+        correct_idx = raw["correct"]
+        correct_answer = options[correct_idx]
+    else:
+        correct_idx = _correct_index(options, correct_answer)
+    return QuizQuestion(
+        id=index,
+        question=str(raw.get("question", "")).strip() or f"What is an important idea about {topic}?",
+        options=options,
+        correct=correct_idx,
+        correct_answer=correct_answer,
+        explanation=str(raw.get("explanation", "")).strip() or "Review the concept and try again.",
+        concept=str(raw.get("concept", "")).strip() or topic,
+    )
+
+
 def _parse_quiz_questions(
     raw_questions: list[dict[str, Any]],
     topic: str,
@@ -203,7 +231,6 @@ def _parse_quiz_questions(
                 continue
             raise ValueError("Invalid quiz question object")
 
-        options = _normalize_quiz_options(raw.get("options"), topic, index)
         if not lenient and len([opt for opt in raw.get("options", []) if str(opt).strip()]) != 4:
             raise ValueError("Invalid quiz options count")
 
@@ -213,23 +240,12 @@ def _parse_quiz_questions(
                 continue
             raise ValueError("Quiz question text is empty")
 
-        correct = _resolve_correct_answer(str(raw.get("correct_answer", "")).strip(), options)
-        if not correct:
+        try:
+            questions.append(_dict_to_quiz_question(raw, index, topic))
+        except ValueError:
             if lenient:
-                correct = options[0]
-            else:
-                raise ValueError("Correct answer must match one option")
-
-        questions.append(
-            QuizQuestion(
-                id=str(raw.get("id") or f"q{index}"),
-                question=question_text,
-                options=options,
-                correct_answer=correct,
-                explanation=str(raw.get("explanation", "")).strip() or "Review the concept and try again.",
-                concept=str(raw.get("concept", "")).strip() or topic,
-            )
-        )
+                continue
+            raise
     return questions
 
 
@@ -250,10 +266,11 @@ def _repair_quiz_count(
         for filler in fillers:
             questions.append(QuizQuestion(**filler))
 
-    for index, question in enumerate(questions, start=1):
-        questions[index - 1] = question.model_copy(update={"id": f"q{index}"})
+    renumbered: list[QuizQuestion] = []
+    for index, question in enumerate(questions[:question_count], start=1):
+        renumbered.append(question.model_copy(update={"id": index}))
 
-    return questions[:question_count]
+    return renumbered
 
 
 def _build_quiz_response(
@@ -279,7 +296,7 @@ def _build_quiz_response(
 
     return QuizResponse(
         topic=data.get("topic") or topic,
-        level=data.get("level") or difficulty,
+        difficulty=data.get("difficulty") or data.get("level") or difficulty,
         questions=repaired,
         source=source,
     ).model_dump()
@@ -289,7 +306,7 @@ def _parse_quiz_from_provider_text(text: str, topic: str, difficulty: str, quest
     recovered = _extract_quiz_questions_from_text(text)
     if recovered:
         return _build_quiz_response(
-            {"topic": topic, "level": difficulty, "questions": recovered},
+            {"topic": topic, "difficulty": difficulty, "questions": recovered},
             topic,
             difficulty,
             question_count,
@@ -359,14 +376,19 @@ def _assistant_from_text(
         data = _extract_json(text)
         answer = str(data.get("answer", "")).strip()
         if answer and not _is_generic_explanation(topic, answer):
-            data["topic"] = data.get("topic") or topic
-            data["safety_note"] = data.get("safety_note") or SAFETY_NOTE
             data["key_points"] = (data.get("key_points") or [])[:4]
             data["next_steps"] = (data.get("next_steps") or [])[:4]
             data["suggested_questions"] = (data.get("suggested_questions") or [])[:4]
             if len(data["key_points"]) < 3:
                 raise ValueError("Insufficient key points")
-            return AssistantResponse(**data).model_dump()
+            return AssistantResponse(
+                answer=answer,
+                key_points=data["key_points"],
+                example=str(data.get("example", "")).strip() or f"A real-world example helps with {topic}.",
+                next_steps=data["next_steps"],
+                suggested_questions=data["suggested_questions"],
+                source=source,
+            ).model_dump()
     except (json.JSONDecodeError, ValueError, TypeError):
         pass
 
@@ -375,7 +397,6 @@ def _assistant_from_text(
         raise ValueError("Empty assistant text")
 
     return AssistantResponse(
-        topic=topic,
         answer=plain,
         key_points=[
             f"Focus on the core idea of {topic}",
@@ -392,7 +413,24 @@ def _assistant_from_text(
             f"What should I study next after {topic}?",
             question,
         ],
-        safety_note=SAFETY_NOTE,
+        source=source,
+    ).model_dump()
+
+
+def _shape_explain_response(data: dict[str, Any], topic: str, source: str) -> dict:
+    key_points = [str(point).strip() for point in (data.get("key_points") or []) if str(point).strip()]
+    key_concepts = [str(point).strip() for point in (data.get("key_concepts") or key_points) if str(point).strip()]
+    if len(key_points) < 3:
+        raise ValueError("Insufficient key points")
+    return ExplainResponse(
+        topic=data.get("topic") or topic,
+        explanation=str(data.get("explanation", "")).strip(),
+        key_concepts=key_concepts[:3],
+        key_points=key_points[:3],
+        example=str(data.get("example", "")).strip(),
+        quote=str(data.get("quote", "")).strip() or DEFAULT_QUOTE,
+        next_topics=(data.get("next_topics") or [])[:2],
+        check_question=str(data.get("check_question", "")).strip(),
         source=source,
     ).model_dump()
 
@@ -422,14 +460,13 @@ Requirements:
 JSON:
 {{
   "topic": "{topic}",
-  "level": "{difficulty}",
   "explanation": "topic-specific explanation",
   "example": "real-world example",
+  "key_concepts": ["point about {topic}", "point 2", "point 3"],
   "key_points": ["point about {topic}", "point 2", "point 3"],
+  "quote": "{DEFAULT_QUOTE}",
   "check_question": "question about {topic}",
-  "next_topics": ["related topic 1", "related topic 2"],
-  "safety_note": "{SAFETY_NOTE}",
-  "source": "openrouter"
+  "next_topics": ["related topic 1", "related topic 2"]
 }}
 """
 
@@ -438,13 +475,7 @@ JSON:
         explanation = str(data.get("explanation", "")).strip()
         if not explanation or _is_generic_explanation(topic, explanation):
             raise ValueError("Generic or empty explanation")
-        data["safety_note"] = data.get("safety_note") or SAFETY_NOTE
-        data["key_points"] = (data.get("key_points") or [])[:4]
-        data["next_topics"] = (data.get("next_topics") or [])[:2]
-        if len(data["key_points"]) < 3:
-            raise ValueError("Insufficient key points")
-        data["source"] = source
-        return ExplainResponse(**data).model_dump()
+        return _shape_explain_response(data, topic, source)
 
     return generate_with_providers(
         prompt,
@@ -474,18 +505,18 @@ Requirements:
 JSON:
 {{
   "topic": "{topic}",
-  "level": "{difficulty}",
+  "difficulty": "{difficulty}",
   "questions": [
     {{
-      "id": "q1",
+      "id": 1,
       "question": "question about {topic}",
       "options": ["A", "B", "C", "D"],
-      "correct_answer": "exact option text",
+      "correct": 0,
+      "correct_answer": "A",
       "explanation": "short explanation",
       "concept": "concept label"
     }}
-  ],
-  "source": "openrouter"
+  ]
 }}
 """
 
@@ -743,7 +774,7 @@ def generate_scholarship_advice(profile: ScholarshipRequest) -> dict:
             {"provider": provider, "ok": False, "error_code": "NOT_CONFIGURED"}
             for provider in ("cohere", "openrouter", "gemini", "groq")
         ]
-        return base
+        return ScholarshipResponse(**base).model_dump()
 
     prompt = f"""
 Return ONLY valid JSON. No markdown.
@@ -756,33 +787,33 @@ Student profile:
 {profile.model_dump_json(indent=2)}
 
 Matches:
-{json.dumps(base["matches"], indent=2)}
+{json.dumps(base["recommended_scholarships"], indent=2)}
 
-Only improve profile_summary and advisor text. Do not change fit scores.
+Only improve summary, strengths, improvements, and next_steps.
+Do not change fit_score or readiness_score.
 
 JSON:
 {{
-  "profile_summary": "specific summary under 60 words",
-  "advisor": {{
-    "summary": "encouraging summary under 80 words",
-    "next_steps": ["step 1", "step 2", "step 3"],
-    "warning": "This is an estimate and does not guarantee acceptance."
-  }}
+  "summary": "encouraging summary under 80 words",
+  "strengths": ["strength 1", "strength 2"],
+  "improvements": ["improvement 1", "improvement 2"],
+  "next_steps": ["step 1", "step 2", "step 3"]
 }}
 """
 
     def parse_scholarship(text: str, source: str) -> dict:
         ai_data = _extract_json(text)
         result = dict(base)
-        result["profile_summary"] = ai_data.get("profile_summary", base["profile_summary"])
-        advisor = ai_data.get("advisor", {})
-        result["advisor"]["summary"] = _ensure_no_guarantee(
-            advisor.get("summary", base["advisor"]["summary"])
+        result["summary"] = _ensure_no_guarantee(
+            ai_data.get("summary", base["summary"])
         )
-        result["advisor"]["next_steps"] = advisor.get("next_steps", base["advisor"]["next_steps"])[:5]
-        result["advisor"]["warning"] = "This is an estimate and does not guarantee acceptance."
+        result["strengths"] = (ai_data.get("strengths") or base["strengths"])[:4]
+        result["improvements"] = (ai_data.get("improvements") or base["improvements"])[:4]
+        result["next_steps"] = (ai_data.get("next_steps") or base["next_steps"])[:5]
+        result["disclaimer"] = SCHOLARSHIP_DISCLAIMER
         result["source"] = source
         result.pop("debug_reason", None)
+        result.pop("provider_attempts", None)
         return ScholarshipResponse(**result).model_dump()
 
     return generate_with_providers(prompt, parse_scholarship, lambda: base)

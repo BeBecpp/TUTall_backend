@@ -149,6 +149,27 @@ def get_topic_bundle(topic: str) -> dict[str, Any] | None:
     return None
 
 
+def _quiz_item_with_index(item: dict[str, Any], question_id: int) -> dict[str, Any]:
+    options = [str(opt).strip() for opt in item.get("options", []) if str(opt).strip()]
+    while len(options) < 4:
+        options.append(f"Option {len(options) + 1}")
+    options = options[:4]
+    correct_answer = str(item.get("correct_answer", options[0])).strip()
+    if correct_answer not in options:
+        resolved = next((opt for opt in options if opt.lower() == correct_answer.lower()), options[0])
+        correct_answer = resolved
+    correct = options.index(correct_answer)
+    return {
+        "id": question_id,
+        "question": str(item.get("question", "")).strip(),
+        "options": options,
+        "correct": correct,
+        "correct_answer": correct_answer,
+        "explanation": str(item.get("explanation", "")).strip() or "Review the concept and try again.",
+        "concept": str(item.get("concept", "")).strip() or "Core concept",
+    }
+
+
 def build_topic_quiz_questions(topic: str, question_count: int, start_id: int = 1) -> list[dict[str, Any]]:
     """Build topic-aware quiz questions for fallback or repair."""
     bundle = get_topic_bundle(topic)
@@ -156,7 +177,7 @@ def build_topic_quiz_questions(topic: str, question_count: int, start_id: int = 
 
     if bundle and bundle.get("quiz"):
         for index, item in enumerate(bundle["quiz"][:question_count], start=start_id):
-            questions.append({**item, "id": f"q{index}"})
+            questions.append(_quiz_item_with_index({**item, "concept": item.get("concept") or topic}, index))
 
     templates = [
         {
@@ -249,7 +270,17 @@ def build_topic_quiz_questions(topic: str, question_count: int, start_id: int = 
     for template in templates:
         if len(questions) >= question_count:
             break
-        questions.append({**template, "id": f"q{next_id}"})
+        questions.append(_quiz_item_with_index({**template, "concept": template.get("concept") or topic}, next_id))
         next_id += 1
 
     return questions[:question_count]
+
+
+def recommend_next_topic(topic: str, completed_topics: list[str] | None = None) -> str:
+    bundle = get_topic_bundle(topic)
+    completed = {value.lower() for value in (completed_topics or [])}
+    if bundle and bundle.get("next_topics"):
+        for candidate in bundle["next_topics"]:
+            if candidate.lower() not in completed:
+                return candidate
+    return f"Applications of {topic}"

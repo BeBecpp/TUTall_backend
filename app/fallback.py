@@ -1,9 +1,18 @@
 from app.schemas import (
-    SAFETY_NOTE,
+    DEFAULT_QUOTE,
+    SCHOLARSHIP_DISCLAIMER,
     ScholarshipRequest,
     StudyPlanDay,
 )
 from app.topic_knowledge import build_topic_quiz_questions, get_topic_bundle
+
+
+def _fit_label(score: int) -> str:
+    if score >= 75:
+        return "High"
+    if score >= 50:
+        return "Medium"
+    return "Low"
 
 
 def fallback_explanation(topic: str, difficulty: str, low_bandwidth: bool = False) -> dict:
@@ -13,21 +22,26 @@ def fallback_explanation(topic: str, difficulty: str, low_bandwidth: bool = Fals
         explanation = bundle["explanation"]
         if low_bandwidth:
             explanation = explanation.split(". ")[0] + "."
+        key_points = bundle["key_points"][:3]
         return {
             "topic": topic,
-            "level": difficulty,
             "explanation": explanation,
+            "key_concepts": key_points,
+            "key_points": key_points,
             "example": bundle["example"],
-            "key_points": bundle["key_points"][:3],
+            "quote": DEFAULT_QUOTE,
             "check_question": bundle["check_question"],
             "next_topics": bundle["next_topics"][:2],
-            "safety_note": SAFETY_NOTE,
             "source": "accessstem_local",
         }
 
+    key_points = [
+        f"Define {topic} in simple words",
+        f"Connect {topic} to one real-world example",
+        f"Practice {topic} with questions and hints",
+    ]
     return {
         "topic": topic,
-        "level": difficulty,
         "explanation": (
             f"{topic} is an important STEM topic at the {difficulty} level. "
             f"Start with a clear definition of {topic}, connect it to one real example, "
@@ -37,17 +51,14 @@ def fallback_explanation(topic: str, difficulty: str, low_bandwidth: bool = Fals
             f"You can find real-world uses of {topic} in science class, technology, "
             "engineering projects, or everyday problem solving."
         ),
-        "key_points": [
-            f"Define {topic} in simple words",
-            f"Connect {topic} to one real-world example",
-            f"Practice {topic} with questions and hints",
-        ],
+        "key_concepts": key_points,
+        "key_points": key_points,
+        "quote": DEFAULT_QUOTE,
         "check_question": f"What is the main idea behind {topic}?",
         "next_topics": [
             f"Applications of {topic}",
             f"Practice problems for {topic}",
         ],
-        "safety_note": SAFETY_NOTE,
         "source": "accessstem_local",
     }
 
@@ -57,7 +68,7 @@ def fallback_quiz(topic: str, difficulty: str = "beginner", question_count: int 
     questions = build_topic_quiz_questions(topic, count)
     return {
         "topic": topic,
-        "level": difficulty,
+        "difficulty": difficulty,
         "questions": questions,
         "source": "accessstem_local",
     }
@@ -95,9 +106,7 @@ def fallback_assistant(
     if bundle:
         answer = bundle["explanation"]
         if "example" in question.lower():
-            answer = (
-                f"{bundle['explanation']} Example: {bundle['example']}"
-            )
+            answer = f"{bundle['explanation']} Example: {bundle['example']}"
         key_points = bundle["key_points"][:3]
         example = bundle["example"]
         next_steps = [
@@ -141,13 +150,11 @@ def fallback_assistant(
 
     _ = student_context
     return {
-        "topic": topic,
         "answer": answer,
         "key_points": key_points,
         "example": example,
         "next_steps": next_steps,
         "suggested_questions": suggested,
-        "safety_note": SAFETY_NOTE,
         "source": "accessstem_local",
     }
 
@@ -253,8 +260,11 @@ def calculate_scholarship_fit(profile: ScholarshipRequest, scholarship: dict) ->
     if category in ("any", "stem") or category in major:
         score += 20
 
-    if profile.financial_need == "high":
+    if profile.financial_need_level == "high":
         score += 10
+
+    if profile.first_generation:
+        score += 5
 
     if profile.english_level.strip():
         score += 10
@@ -274,36 +284,36 @@ def calculate_scholarship_fit(profile: ScholarshipRequest, scholarship: dict) ->
 def fallback_scholarship_match(profile: ScholarshipRequest) -> dict:
     catalog = [
         {
-            "name": "STEM Future Grant",
+            "name": "STEM Access Scholarship",
             "category": "STEM",
             "min_gpa": 3.5,
-            "estimated_amount": 5000,
-            "deadline": "2026-07-15",
             "required_documents": ["Transcript", "Personal statement", "Recommendation letter"],
         },
         {
             "name": "Global Access Scholarship",
             "category": "Any",
             "min_gpa": 3.2,
-            "estimated_amount": 10000,
-            "deadline": "2026-08-01",
             "required_documents": ["Transcript", "Financial need statement", "ID document"],
         },
         {
             "name": "Tech Learners Award",
             "category": "Computer Science",
             "min_gpa": 3.4,
-            "estimated_amount": 7000,
-            "deadline": "2026-09-10",
             "required_documents": ["Transcript", "Project portfolio", "Recommendation letter"],
         },
     ]
 
-    matches = []
+    recommended: list[dict] = []
+    all_strengths: list[str] = []
+    all_improvements: list[str] = []
+    all_documents: list[str] = []
+    fit_scores: list[int] = []
+
     for scholarship in catalog:
         fit_score = calculate_scholarship_fit(profile, scholarship)
-        improvements = ["Verify official eligibility requirements on the scholarship website"]
+        fit_scores.append(fit_score)
 
+        improvements = ["Verify official eligibility requirements on the scholarship website"]
         if profile.gpa < scholarship["min_gpa"]:
             improvements.append("Improve GPA or target scholarships with lower GPA requirements")
         if not profile.has_essay:
@@ -318,41 +328,50 @@ def fallback_scholarship_match(profile: ScholarshipRequest) -> dict:
             strengths.append("GPA meets or is close to this scholarship range")
         if profile.activities.strip():
             strengths.append("Activities show engagement beyond grades")
+        if profile.first_generation:
+            strengths.append("First-generation student pathways may apply")
 
-        matches.append(
+        all_strengths.extend(strengths[:2])
+        all_improvements.extend(improvements[:2])
+        all_documents.extend(scholarship["required_documents"])
+
+        reason_parts = [f"GPA {profile.gpa} for {profile.intended_major}"]
+        if profile.first_generation:
+            reason_parts.append("first-generation student profile")
+        if profile.financial_need_level == "high":
+            reason_parts.append("financial need considered")
+
+        recommended.append(
             {
                 "name": scholarship["name"],
-                "category": scholarship["category"],
-                "fit_score": fit_score,
-                "estimated_amount": scholarship["estimated_amount"],
-                "deadline": scholarship["deadline"],
-                "strengths": strengths[:3],
-                "improvements": improvements[:4],
-                "required_documents": scholarship["required_documents"],
+                "fit": _fit_label(fit_score),
+                "reason": "; ".join(reason_parts),
             }
         )
 
-    overall = round(sum(match["fit_score"] for match in matches) / len(matches))
+    readiness = round(sum(fit_scores) / len(fit_scores)) if fit_scores else 0
+    unique_strengths = list(dict.fromkeys(all_strengths))[:4]
+    unique_improvements = list(dict.fromkeys(all_improvements))[:4]
+    unique_documents = list(dict.fromkeys(all_documents))[:5]
 
     return {
-        "profile_summary": (
+        "fit_score": readiness,
+        "readiness_score": readiness,
+        "summary": (
             f"Grade {profile.grade_level} student from {profile.country} interested in "
-            f"{profile.intended_major} with GPA {profile.gpa}."
+            f"{profile.intended_major} with GPA {profile.gpa}. "
+            "These are estimated scholarship readiness insights only."
         ),
-        "overall_readiness_score": overall,
-        "matches": matches,
-        "advisor": {
-            "summary": (
-                "These are estimated scholarship readiness matches. TUTall helps you prepare, "
-                "but does not guarantee acceptance."
-            ),
-            "next_steps": [
-                "Prepare transcript",
-                "Start personal statement",
-                "Check official deadlines",
-                "Request recommendation letters early",
-            ],
-            "warning": "This is an estimate and does not guarantee acceptance.",
-        },
+        "strengths": unique_strengths or [f"Interest in {profile.intended_major}"],
+        "improvements": unique_improvements or ["Check official scholarship requirements"],
+        "recommended_scholarships": recommended,
+        "required_documents": unique_documents,
+        "next_steps": [
+            "Prepare transcript",
+            "Start personal statement",
+            "Check official deadlines",
+            "Request recommendation letters early",
+        ],
+        "disclaimer": SCHOLARSHIP_DISCLAIMER,
         "source": "accessstem_local",
     }

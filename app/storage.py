@@ -10,7 +10,15 @@ from threading import Lock
 from typing import Any
 
 from app.config import get_settings
-from app.schemas import ProgressItem, ProgressListResponse, ProgressSaveResponse, ScholarshipRequest
+from app.schemas import (
+    DashboardResponse,
+    ProgressItem,
+    ProgressListResponse,
+    ProgressSaveResponse,
+    RecentScore,
+    ScholarshipRequest,
+)
+from app.topic_knowledge import recommend_next_topic
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +61,10 @@ class StorageBackend(ABC):
     ) -> None:
         raise NotImplementedError
 
+    @abstractmethod
+    def get_dashboard(self, student_id: str) -> DashboardResponse:
+        raise NotImplementedError
+
 
 class InMemoryBackend(StorageBackend):
     """Fallback store when DATABASE_URL is missing or Postgres is unavailable."""
@@ -88,7 +100,14 @@ class InMemoryBackend(StorageBackend):
         )
         with self._lock:
             self._progress.append(item.model_dump())
-        return ProgressSaveResponse(saved=True, item=item)
+        return ProgressSaveResponse(
+            saved=True,
+            student_id=student_id,
+            topic=topic,
+            score=score,
+            total=total,
+            percentage=percentage,
+        )
 
     def list_progress(self, student_id: str) -> ProgressListResponse:
         with self._lock:
@@ -144,6 +163,32 @@ class InMemoryBackend(StorageBackend):
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
+
+    def get_dashboard(self, student_id: str) -> DashboardResponse:
+        listed = self.list_progress(student_id)
+        topics_completed = len({item.topic for item in listed.items})
+        recent_scores = [
+            RecentScore(
+                topic=item.topic,
+                score=item.score,
+                total=item.total,
+                percentage=item.percentage,
+            )
+            for item in listed.items[:5]
+        ]
+        last_topic = listed.items[0].topic if listed.items else ""
+        completed_topics = [item.topic for item in listed.items]
+        recommended = recommend_next_topic(last_topic or "STEM", completed_topics) if last_topic else "Photosynthesis"
+        return DashboardResponse(
+            student_id=student_id,
+            topics_completed=topics_completed,
+            quizzes_taken=len(listed.items),
+            average_score=listed.average_percentage,
+            last_topic=last_topic,
+            recent_scores=recent_scores,
+            recommended_next_topic=recommended,
+            source="backend",
+        )
 
 
 class PostgresBackend(StorageBackend):
@@ -209,16 +254,14 @@ class PostgresBackend(StorageBackend):
                 row = cur.fetchone()
             conn.commit()
 
-        item = ProgressItem(
-            id=str(row[0]),
+        return ProgressSaveResponse(
+            saved=True,
             student_id=student_id,
             topic=topic,
             score=score,
             total=total,
             percentage=percentage,
-            created_at=row[1].isoformat() if hasattr(row[1], "isoformat") else str(row[1]),
         )
-        return ProgressSaveResponse(saved=True, item=item)
 
     def list_progress(self, student_id: str) -> ProgressListResponse:
         with self._connect() as conn:
@@ -309,6 +352,32 @@ class PostgresBackend(StorageBackend):
                     (endpoint, topic, source, success, error_code),
                 )
             conn.commit()
+
+    def get_dashboard(self, student_id: str) -> DashboardResponse:
+        listed = self.list_progress(student_id)
+        topics_completed = len({item.topic for item in listed.items})
+        recent_scores = [
+            RecentScore(
+                topic=item.topic,
+                score=item.score,
+                total=item.total,
+                percentage=item.percentage,
+            )
+            for item in listed.items[:5]
+        ]
+        last_topic = listed.items[0].topic if listed.items else ""
+        completed_topics = [item.topic for item in listed.items]
+        recommended = recommend_next_topic(last_topic or "STEM", completed_topics) if last_topic else "Photosynthesis"
+        return DashboardResponse(
+            student_id=student_id,
+            topics_completed=topics_completed,
+            quizzes_taken=len(listed.items),
+            average_score=listed.average_percentage,
+            last_topic=last_topic,
+            recent_scores=recent_scores,
+            recommended_next_topic=recommended,
+            source="backend",
+        )
 
 
 class Storage:
@@ -408,6 +477,15 @@ class Storage:
                 logger.warning("AI request log failed in Postgres (%s)", type(exc).__name__)
                 self._postgres_enabled = False
         self._memory.log_ai_request(endpoint, topic, source, success, error_code)
+
+    def get_dashboard(self, student_id: str) -> DashboardResponse:
+        if self._postgres_enabled and self._postgres:
+            try:
+                return self._postgres.get_dashboard(student_id)
+            except Exception as exc:
+                logger.warning("Dashboard read failed in Postgres (%s)", type(exc).__name__)
+                self._postgres_enabled = False
+        return self._memory.get_dashboard(student_id)
 
 
 _storage: Storage | None = None

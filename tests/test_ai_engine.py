@@ -87,6 +87,8 @@ def test_build_quiz_response_exact_count():
     for question in result["questions"]:
         assert len(question["options"]) == 4
         assert question["correct_answer"] in question["options"]
+        assert question["options"][question["correct"]] == question["correct_answer"]
+        assert isinstance(question["id"], int)
 
 
 def test_build_quiz_response_repairs_short_count():

@@ -11,17 +11,21 @@ client = TestClient(app)
 
 EXPLAIN_JSON = {
     "topic": "Gravity",
-    "level": "beginner",
     "explanation": "Gravity is a force that pulls objects toward Earth.",
     "example": "An apple falling from a tree shows gravity.",
+    "key_concepts": [
+        "Gravity pulls objects toward mass",
+        "Earth's gravity keeps us on the ground",
+        "Gravity depends on distance and mass",
+    ],
     "key_points": [
         "Gravity pulls objects toward mass",
         "Earth's gravity keeps us on the ground",
         "Gravity depends on distance and mass",
     ],
+    "quote": "Understanding this topic is essential for STEM success.",
     "check_question": "What does gravity do to objects?",
     "next_topics": ["Mass and weight", "Orbital motion"],
-    "safety_note": "AI-generated learning support. Verify important information.",
 }
 
 
@@ -44,7 +48,9 @@ def test_ai_status_endpoint():
     assert body["active_strategy"] == "cohere -> openrouter -> gemini -> groq -> accessstem_local"
     assert "cohere_enabled" in body
     assert "cohere_configured" in body
-    assert "cohere_model" in body
+    assert "gemini_configured" in body
+    assert "groq_configured" in body
+    assert "cohere_model" not in body
 
 
 def test_ai_status_does_not_expose_secrets():
@@ -170,7 +176,7 @@ def test_quiz_cohere_counts_3_5_7():
         payload = json.dumps(
             {
                 "topic": "Photosynthesis",
-                "level": "middle school",
+                "difficulty": "middle school",
                 "questions": questions,
             }
         )
