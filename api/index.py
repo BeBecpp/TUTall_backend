@@ -1,28 +1,20 @@
-"""Vercel serverless entrypoint — must never crash at import time."""
+"""Vercel serverless entrypoint — stdlib fallback if FastAPI cannot load."""
 
 from __future__ import annotations
 
+import json
 import logging
-
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from http.server import BaseHTTPRequestHandler
 
 logger = logging.getLogger(__name__)
 
-_SECRET_PATTERNS = (
-    "api_key",
-    "secret",
-    "password",
-    "token",
-    "bearer",
-    "database_url",
-)
+_SECRET_MARKERS = ("api_key", "secret", "password", "token", "bearer", "database_url")
 
 
 def _safe_error_message(exc: BaseException) -> str:
     message = " ".join(str(exc).split())
     lowered = message.lower()
-    if any(pattern in lowered for pattern in _SECRET_PATTERNS):
+    if any(marker in lowered for marker in _SECRET_MARKERS):
         return "Application import failed due to a configuration or dependency error."
     return message[:180] if message else "Application import failed."
 
@@ -40,7 +32,66 @@ def _startup_debug_payload(exc: BaseException | None) -> dict[str, object]:
     }
 
 
-def _emergency_app(startup_error: BaseException | None = None) -> FastAPI:
+class handler(BaseHTTPRequestHandler):
+    """Stdlib fallback used only when FastAPI `app` is unavailable."""
+
+    def do_GET(self) -> None:
+        path = self.path.split("?", 1)[0]
+        if path in {"/health", "/health/"}:
+            self._send_json(
+                200,
+                {
+                    "status": "degraded",
+                    "service": "TUTall Backend",
+                    "error": "startup_import_failed",
+                    "message": "Backend emergency health is running",
+                },
+            )
+            return
+        if path in {"/api/debug/startup", "/api/debug/startup/"}:
+            self._send_json(
+                200,
+                _startup_debug_payload(
+                    RuntimeError("FastAPI application could not be imported in serverless runtime.")
+                ),
+            )
+            return
+        if path in {"/", ""}:
+            self._send_json(
+                200,
+                {
+                    "message": "TUTall Backend emergency stdlib handler",
+                    "health": "/health",
+                    "startup_debug": "/api/debug/startup",
+                },
+            )
+            return
+        self._send_json(
+            503,
+            {
+                "error": "Backend boot failed",
+                "error_code": "BOOT_FAILED",
+                "path": path,
+                "startup_ok": False,
+            },
+        )
+
+    def log_message(self, format: str, *args) -> None:
+        logger.info("%s - %s", self.address_string(), format % args)
+
+    def _send_json(self, status: int, payload: dict[str, object]) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def _emergency_fastapi_app(startup_error: BaseException) -> object:
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+
     emergency = FastAPI(title="TUTall Backend")
     debug_payload = _startup_debug_payload(startup_error)
 
@@ -80,12 +131,21 @@ def _emergency_app(startup_error: BaseException | None = None) -> FastAPI:
     return emergency
 
 
+app = None
+
 try:
-    from app.application import app as app
+    from app.application import app as _loaded_app
+
+    app = _loaded_app
 except Exception as exc:
     logger.exception("Failed to load TUTall application")
-    app = _emergency_app(exc)
+    try:
+        app = _emergency_fastapi_app(exc)
+    except Exception:
+        logger.exception("FastAPI emergency boot failed; stdlib handler remains active")
+        app = None
 
-handler = app
+if app is not None:
+    handler = app
 
 __all__ = ["app", "handler"]
