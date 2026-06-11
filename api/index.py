@@ -7,16 +7,42 @@ import logging
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from app.startup_debug import startup_debug_payload
-
 logger = logging.getLogger(__name__)
 
-_STARTUP_ERROR: BaseException | None = None
+_SECRET_PATTERNS = (
+    "api_key",
+    "secret",
+    "password",
+    "token",
+    "bearer",
+    "database_url",
+)
+
+
+def _safe_error_message(exc: BaseException) -> str:
+    message = " ".join(str(exc).split())
+    lowered = message.lower()
+    if any(pattern in lowered for pattern in _SECRET_PATTERNS):
+        return "Application import failed due to a configuration or dependency error."
+    return message[:180] if message else "Application import failed."
+
+
+def _startup_debug_payload(exc: BaseException | None) -> dict[str, object]:
+    if exc is None:
+        return {"startup_ok": True}
+    error_type = type(exc).__name__
+    if error_type not in {"ImportError", "ModuleNotFoundError", "RuntimeError", "ValidationError"}:
+        error_type = "RuntimeError"
+    return {
+        "startup_ok": False,
+        "error_type": error_type,
+        "error_message": _safe_error_message(exc),
+    }
 
 
 def _emergency_app(startup_error: BaseException | None = None) -> FastAPI:
     emergency = FastAPI(title="TUTall Backend")
-    debug_payload = startup_debug_payload(startup_ok=False, error=startup_error)
+    debug_payload = _startup_debug_payload(startup_error)
 
     @emergency.get("/")
     def emergency_root() -> dict:
@@ -41,8 +67,6 @@ def _emergency_app(startup_error: BaseException | None = None) -> FastAPI:
 
     @emergency.api_route("/{path:path}", methods=["GET", "POST", "DELETE", "OPTIONS"])
     def emergency_handler(path: str) -> JSONResponse:
-        if path in {"health", "api/debug/startup"}:
-            return JSONResponse(status_code=404, content={"error": "Not found"})
         return JSONResponse(
             status_code=503,
             content={
@@ -59,8 +83,9 @@ def _emergency_app(startup_error: BaseException | None = None) -> FastAPI:
 try:
     from app.application import app as app
 except Exception as exc:
-    _STARTUP_ERROR = exc
     logger.exception("Failed to load TUTall application")
     app = _emergency_app(exc)
 
-__all__ = ["app"]
+handler = app
+
+__all__ = ["app", "handler"]
